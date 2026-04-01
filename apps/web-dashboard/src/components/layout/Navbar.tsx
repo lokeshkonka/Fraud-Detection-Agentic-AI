@@ -52,7 +52,7 @@ export function Navbar({ current, onNavigate }: NavbarProps) {
               onClick={() => onNavigate(item.route)}
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                 active
-                  ? 'bg-cyan-500/15 text-cyan-200 border border-cyan-500/30'
+                  ? 'bg-cyan-500/15 text-cyan-200 border border-cyan-500/30 motion-safe:animate-[slideInLeft_.2s_ease_both]'
                   : 'text-zinc-400 hover:bg-zinc-800/80 hover:text-zinc-100 border border-transparent'
               }`}
             >

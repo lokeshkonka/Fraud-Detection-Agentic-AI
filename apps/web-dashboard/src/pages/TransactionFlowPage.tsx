@@ -10,6 +10,9 @@ import { Spinner } from '../components/ui/Spinner'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { SectionHeader } from '../components/ui/SectionHeader'
 import { EmptyState } from '../components/ui/EmptyState'
+import { AnimatedBar } from '../components/ui/AnimatedBar'
+import { ToastContainer } from '../components/ui/Toast'
+import { useToast } from '../hooks/useToast'
 import { useApi } from '../hooks/useApi'
 import { usePost } from '../hooks/usePost'
 import { apiPost } from '../lib/api'
@@ -24,6 +27,7 @@ const CHANNELS = ['card', 'wire', 'crypto', 'ach', 'upi'] as const
 export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
   const [flow, refreshFlow] = useApi<TransactionFlowResponse>(apiBase, '/transaction-flow/recent?limit=40')
   const [scoreState, postScore] = usePost<ScoreResponse>(apiBase, '/score')
+  const addToast = useToast()
 
   const [form, setForm] = useState({
     amount: '1250',
@@ -46,6 +50,12 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
     const result = await postScore(body)
     if (result) {
       void refreshFlow()
+      // Toast notification based on fraud label
+      if (result.label === 'fraud') {
+        addToast(`⚠ Fraud detected — score ${(result.score * 100).toFixed(1)}% — ${result.decision}`, 'error')
+      } else {
+        addToast(`✓ Transaction approved — score ${(result.score * 100).toFixed(1)}%`, 'success')
+      }
       // Fetch SHAP-like explanation
       try {
         const explain = await apiPost<{ contributions: Record<string, number> }>(
@@ -158,20 +168,23 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
           {explainResult && (
             <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-950 p-3">
               <p className="mb-2 text-xs font-medium text-zinc-400">Feature contributions</p>
-              <div className="space-y-1.5">
+              <div className="space-y-2">
                 {Object.entries(explainResult)
                   .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
                   .slice(0, 8)
-                  .map(([feat, val]) => (
+                  .map(([feat, val], idx) => (
                     <div key={feat} className="flex items-center gap-2">
                       <span className="w-32 shrink-0 text-[10px] text-zinc-500 truncate">{feat}</span>
-                      <div className="flex-1 overflow-hidden rounded bg-zinc-900">
-                        <div
-                          className={`h-1.5 rounded transition-all ${val > 0 ? 'bg-red-400' : 'bg-emerald-400'}`}
-                          style={{ width: `${Math.min(100, Math.abs(val) * 200)}%` }}
+                      <div className="flex-1">
+                        <AnimatedBar
+                          value={Math.min(100, Math.abs(val) * 200)}
+                          max={100}
+                          color={val > 0 ? 'red' : 'emerald'}
+                          height="h-1.5"
+                          delay={idx * 40}
                         />
                       </div>
-                      <span className={`text-[10px] tabular-nums ${val > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                      <span className={`w-12 text-right text-[10px] tabular-nums ${val > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
                         {val > 0 ? '+' : ''}{val.toFixed(3)}
                       </span>
                     </div>
@@ -225,6 +238,7 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
           <ErrorBanner message={flow.error} />
         </Panel>
       </div>
+      <ToastContainer />
     </div>
   )
 }

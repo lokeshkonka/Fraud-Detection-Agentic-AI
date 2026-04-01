@@ -55,7 +55,33 @@ body {
   animation: pulseGlow 2s ease-in-out infinite;
 }
 
-/* Custom scrollbar for dark theme */
+/* Gradient sweep for header top bar */
+@keyframes gradientSweep {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+/* Slide in from bottom for toasts */
+@keyframes slideInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+/* Slide out to bottom for toast dismiss */
+@keyframes slideOutDown {
+  from { opacity: 1; transform: translateY(0); }
+  to { opacity: 0; transform: translateY(20px); }
+}
+/* Ping ring for status dots */
+@keyframes ping-slow {
+  0% { transform: scale(1); opacity: 0.6; }
+  80%, 100% { transform: scale(2.2); opacity: 0; }
+}
+.animate-ping-slow { animation: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite; }
+/* Shimmer for loading skeletons */
+@keyframes shimmer {
+  from { background-position: -200px 0; }
+  to { background-position: calc(200px + 100%) 0; }
+}
+
 ::-webkit-scrollbar {
   width: 4px;
   height: 4px;

@@ -4,6 +4,7 @@
 
 import { Panel } from '../components/ui/Panel'
 import { KpiCard } from '../components/ui/KpiCard'
+import { AnimatedBar } from '../components/ui/AnimatedBar'
 import { Spinner } from '../components/ui/Spinner'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { SectionHeader } from '../components/ui/SectionHeader'
@@ -137,14 +138,26 @@ export function ModelLabPage({ apiBase }: ModelLabPageProps) {
               </table>
             </div>
 
-            {/* Visual bars */}
+            {/* Visual bars with AnimatedBar + staggered entrance */}
             <div className="mt-6 space-y-2">
-              {accuracyCurve.map((pt) => (
+              {accuracyCurve.map((pt, idx) => (
                 <div key={`bar-${pt.x}`} className="flex items-center gap-3">
                   <span className="w-16 shrink-0 text-right text-[10px] text-zinc-600 tabular-nums">{pt.x.toLocaleString()}</span>
-                  <div className="flex flex-1 gap-1">
-                    <div className="h-3 rounded bg-emerald-500/60 transition-all" style={{ width: `${pt.precision * 100}%` }} title={`Precision ${(pt.precision * 100).toFixed(1)}%`} />
-                    <div className="h-3 rounded bg-violet-500/60 transition-all" style={{ width: `${pt.fraud_catch * 100}%` }} title={`Fraud catch ${(pt.fraud_catch * 100).toFixed(1)}%`} />
+                  <div className="flex flex-1 flex-col gap-1">
+                    <AnimatedBar
+                      value={pt.precision * 100}
+                      max={100}
+                      color="emerald"
+                      height="h-2"
+                      delay={idx * 50}
+                    />
+                    <AnimatedBar
+                      value={pt.fraud_catch * 100}
+                      max={100}
+                      color="violet"
+                      height="h-2"
+                      delay={idx * 50 + 25}
+                    />
                   </div>
                 </div>
               ))}

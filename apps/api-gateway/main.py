@@ -339,7 +339,10 @@ async def dashboard_overview() -> DashboardResponse:
     for item in recent:
         decision_counts[item["decision"]] = decision_counts.get(item["decision"], 0) + 1
 
-    graph_data = await safe_get_json(f"{GRAPH_SERVICE_URL}/overview", {})
+    graph_data = await safe_get_json(
+        f"{GRAPH_SERVICE_URL}/overview",
+        {"nodes": 0, "edges": 0, "high_risk_nodes": 0, "mule_ring_signals": 0},
+    )
     model_ops = await safe_get_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/overview", {})
     open_cases_raw = await safe_get_json(f"{AUDIT_SERVICE_URL}/cases", [])
     open_cases_count = len(open_cases_raw) if isinstance(open_cases_raw, list) else 0
@@ -399,19 +402,30 @@ async def simulation_run(cfg: SimRunConfig) -> Dict[str, Any]:
     await safe_post_json(f"{GRAPH_SERVICE_URL}/sync-events", {"events": events}, {})
 
     for event in events[:80]:
+        label = event.get("label", "legit")
+        amount = float(event.get("amount", 0))
+        if label == "fraud":
+            score = min(0.96, 0.72 + (amount / 50000) * 0.2)
+            rule_score = 0.65
+            model_score = 0.75
+        else:
+            score = min(0.35, 0.08 + (amount / 80000) * 0.15)
+            rule_score = 0.12
+            model_score = 0.09
+        decision = decision_band(label, score)
         app.state.recent_transactions.insert(
             0,
             {
                 "transaction_id": event.get("transaction_id"),
                 "user_id": event.get("user_id"),
-                "amount": event.get("amount", 0),
+                "amount": amount,
                 "channel": event.get("channel", "card"),
-                "score": 0.82 if event.get("label") == "fraud" else 0.18,
-                "label": event.get("label", "legit"),
-                "decision": "hold" if event.get("label") == "fraud" else "approve",
+                "score": round(score, 4),
+                "label": label,
+                "decision": decision,
                 "reasons": [event.get("archetype", "simulation")],
-                "rule_score": 0.7 if event.get("label") == "fraud" else 0.2,
-                "model_score": 0.78 if event.get("label") == "fraud" else 0.21,
+                "rule_score": rule_score,
+                "model_score": model_score,
                 "timestamp": event.get("timestamp"),
             },
         )
@@ -532,10 +546,17 @@ async def model_ops_retrain_now() -> Dict[str, Any]:
     "/cases-audit/list",
     response_model=ItemListResponse,
     tags=["cases-audit"],
-    summary="List all open fraud cases from the audit service",
+    summary="List fraud cases with optional status filter and pagination",
 )
-async def cases_audit_list() -> ItemListResponse:
-    items = await safe_get_json(f"{AUDIT_SERVICE_URL}/cases", [])
+async def cases_audit_list(
+    status: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0,
+) -> ItemListResponse:
+    url = f"{AUDIT_SERVICE_URL}/cases?limit={limit}&offset={offset}"
+    if status is not None:
+        url += f"&status={status}"
+    items = await safe_get_json(url, [])
     return ItemListResponse(items=items if isinstance(items, list) else [])
 
 
@@ -543,10 +564,10 @@ async def cases_audit_list() -> ItemListResponse:
     "/cases-audit/audits",
     response_model=ItemListResponse,
     tags=["cases-audit"],
-    summary="List recent audit log entries from the audit service",
+    summary="List recent audit log entries from the audit service with pagination",
 )
-async def cases_audit_audits() -> ItemListResponse:
-    items = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits", [])
+async def cases_audit_audits(limit: int = 40, offset: int = 0) -> ItemListResponse:
+    items = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits?limit={limit}&offset={offset}", [])
     return ItemListResponse(items=items if isinstance(items, list) else [])
 
 
@@ -574,6 +595,45 @@ async def rule_studio_evaluate(rule_set: RuleSetInput) -> RuleEvalResponse:
         rules=rule_set.model_dump(),
         note="Simulation-only rule tuning; production rules are not mutated in this demo",
     )
+
+
+@app.post(
+    "/explain",
+    tags=["inference"],
+    summary="SHAP-like per-feature score contributions for a transaction",
+)
+async def explain(tx: Transaction) -> Dict[str, Any]:
+    logger.info("explain tx=%s", tx.transaction_id)
+    payload = tx.model_dump(mode="json")
+    result = await safe_post_json(f"{ML_INFERENCE_URL}/explain", payload, None)
+    if result is None:
+        raise HTTPException(status_code=503, detail="ml-inference unavailable")
+    return result  # type: ignore[return-value]
+
+
+@app.post(
+    "/batch-score",
+    tags=["inference"],
+    summary="Batch score up to 200 transactions; proxied to ml-inference",
+)
+async def batch_score(body: List[Dict[str, Any]]) -> Dict[str, Any]:
+    try:
+        resp = await app.state.http_client.post(f"{ML_INFERENCE_URL}/batch-score", json=body)
+        resp.raise_for_status()
+        return resp.json()  # type: ignore[return-value]
+    except Exception as exc:
+        logger.warning("batch-score proxy failed: %s", exc)
+        raise HTTPException(status_code=503, detail="ml-inference unavailable")
+
+
+@app.get(
+    "/simulation/archetypes/detail",
+    tags=["simulation"],
+    summary="Detailed descriptions and risk levels for every fraud archetype",
+)
+async def simulation_archetypes_detail() -> Dict[str, Any]:
+    result = await safe_get_json(f"{SIMULATION_ENGINE_URL}/archetypes/detail", [])
+    return {"archetypes": result}
 
 
 if __name__ == "__main__":

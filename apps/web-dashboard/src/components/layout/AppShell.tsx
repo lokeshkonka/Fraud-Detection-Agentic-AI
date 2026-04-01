@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react'
 import { Navbar } from './Navbar'
 import type { RouteKey } from './Navbar'
-import { Badge } from '../ui/Badge'
+import { StatusDot } from '../ui/StatusDot'
 
 interface AppShellProps {
   route: RouteKey
@@ -28,7 +28,14 @@ export function AppShell({
       <header className="sticky top-0 z-20 border-b border-zinc-800/80 bg-zinc-950/90 px-4 py-3 backdrop-blur-sm md:px-6">
         <div className="mx-auto flex max-w-[1600px] items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-violet-500 text-sm font-bold text-white shadow-lg shadow-cyan-500/25">
+            {/* Logo with animated ring */}
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-cyan-500 to-violet-500 text-sm font-bold text-white"
+              style={{
+                boxShadow: '0 0 0 2px rgba(6,182,212,0.5), 0 0 0 4px rgba(139,92,246,0.25)',
+                animation: 'pulseGlow 2.5s ease-in-out infinite',
+              }}
+            >
               F
             </div>
             <div className="hidden sm:block">
@@ -37,9 +44,9 @@ export function AppShell({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {gatewayStatus && (
-              <Badge value={gatewayStatus} label={`gateway: ${gatewayStatus}`} />
+              <StatusDot status={gatewayStatus} label="gateway" />
             )}
             <button
               type="button"
@@ -51,6 +58,16 @@ export function AppShell({
           </div>
         </div>
       </header>
+
+      {/* Animated gradient top-border bar */}
+      <div
+        className="h-px w-full"
+        style={{
+          background: 'linear-gradient(to right, #06b6d4, #8b5cf6, #06b6d4)',
+          backgroundSize: '200% 100%',
+          animation: 'gradientSweep 3s ease infinite',
+        }}
+      />
 
       {/* Mobile nav */}
       <div className="border-b border-zinc-800/60 bg-zinc-950/80 px-4 py-3 lg:hidden">

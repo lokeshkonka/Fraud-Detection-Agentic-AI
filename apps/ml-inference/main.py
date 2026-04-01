@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from datetime import datetime
 import math
@@ -125,6 +126,29 @@ class ExplainResponse(BaseModel):
     contributions: Dict[str, float]
 
 
+class BatchSummary(BaseModel):
+    total: int
+    fraud_count: int
+    fraud_rate: float
+    avg_score: float
+    max_score: float
+
+
+class BatchScoreResponse(BaseModel):
+    results: List[ScoreResponse]
+    summary: BatchSummary
+
+
+class CompareResponse(BaseModel):
+    transaction_id: str
+    champion_score: float
+    challenger_score: float
+    champion_label: str
+    challenger_label: str
+    delta: float
+    agreement: bool
+
+
 class HealthResponse(BaseModel):
     status: str
     model_version: str
@@ -158,6 +182,15 @@ DRIFT_BASELINE = DriftBaseline(
     mean_shift_score=0.06,
     variance_shift_score=0.09,
 )
+
+# Mutable runtime drift counters — updated on every score call.
+_drift_state: Dict[str, float] = {
+    "psi": 0.08,
+    "mean_shift": 0.06,
+    "variance_shift": 0.09,
+    "score_count": 0.0,
+    "fraud_count": 0.0,
+}
 
 # ---------------------------------------------------------------------------
 # App
@@ -227,6 +260,11 @@ def score_transaction(tx: Transaction) -> ScoreResponse:
     model_component = model_score_fn(feats)
     final_prob = max(0.0, min(0.99, 0.35 * rule_component + 0.65 * model_component))
     label = "fraud" if final_prob >= 0.55 else "legit"
+
+    # Update drift counters
+    _drift_state["score_count"] += 1.0
+    if label == "fraud":
+        _drift_state["fraud_count"] += 1.0
 
     reasons: List[str] = []
     if feats["is_wire"] > 0:
@@ -385,7 +423,19 @@ async def model_accuracy_curve() -> AccuracyCurveResponse:
     summary="Current drift baseline: PSI, mean-shift, variance-shift, fraud prevalence",
 )
 async def drift_baseline() -> DriftBaselineResponse:
-    return DriftBaselineResponse(**DRIFT_BASELINE.model_dump())
+    sc = _drift_state["score_count"]
+    fc = _drift_state["fraud_count"]
+    dyn_psi = min(0.5, 0.08 + (sc / 10000) * 0.04)
+    dyn_mean_shift = min(0.5, 0.06 + (fc / max(sc, 1)) * 0.2)
+    dyn_variance_shift = min(0.5, 0.09 + (sc / 8000) * 0.05)
+    prevalence = round(fc / max(sc, 1), 4)
+    return DriftBaselineResponse(
+        generated_at=datetime.utcnow().isoformat() + "Z",
+        fraud_prevalence=max(0.011, prevalence),
+        psi=round(dyn_psi, 4),
+        mean_shift_score=round(dyn_mean_shift, 4),
+        variance_shift_score=round(dyn_variance_shift, 4),
+    )
 
 
 @app.get(
@@ -405,6 +455,70 @@ async def model_lab_overview() -> ModelLabResponse:
         feature_stats=FEATURE_STATS,
         accuracy_curve=ACCURACY_CURVE,
         drift_baseline=DRIFT_BASELINE,
+    )
+
+
+@app.post(
+    "/batch-score",
+    response_model=BatchScoreResponse,
+    tags=["inference"],
+    summary="Score a batch of 1-200 transactions and return aggregate summary",
+)
+async def batch_score(transactions: List[Transaction]) -> BatchScoreResponse:
+    if len(transactions) > 200:
+        raise HTTPException(status_code=422, detail="Max 200 transactions per batch")
+    results = [score_transaction(tx) for tx in transactions]
+    total = len(results)
+    fraud_count = sum(1 for r in results if r.label == "fraud")
+    scores = [r.score for r in results]
+    logger.info("batch-score total=%d fraud=%d", total, fraud_count)
+    return BatchScoreResponse(
+        results=results,
+        summary=BatchSummary(
+            total=total,
+            fraud_count=fraud_count,
+            fraud_rate=round(fraud_count / total, 4) if total else 0.0,
+            avg_score=round(sum(scores) / total, 4) if total else 0.0,
+            max_score=round(max(scores), 4) if scores else 0.0,
+        ),
+    )
+
+
+@app.post(
+    "/compare",
+    response_model=CompareResponse,
+    tags=["inference"],
+    summary="Champion vs challenger score comparison for a single transaction",
+)
+async def compare(tx: Transaction) -> CompareResponse:
+    champion = score_transaction(tx)
+    # Challenger: perturb logit by ×0.92 + deterministic noise derived from tx_id hash
+    h = int(hashlib.md5(tx.transaction_id.encode()).hexdigest(), 16) % 1000
+    noise = (h / 1000.0 - 0.5) * 0.08  # range [-0.04, +0.04]
+    feats = simple_features(tx)
+    rule_c = rules_score(feats)
+    base_logit = (
+        1.6 * feats["amount_norm"]
+        + 0.8 * feats["velocity"]
+        + 1.4 * feats["is_wire"]
+        + 0.6 * feats["merchant_missing"]
+        + 0.3 * min(abs(feats["balance_delta_org"]) / 1000, 1.0)
+        + 0.3 * min(abs(feats["balance_delta_dest"]) / 1000, 1.0)
+        - 1.4
+    )
+    challenger_model = max(0.0, min(0.99, logistic(base_logit * 0.92 + noise)))
+    challenger_prob = max(0.0, min(0.99, 0.35 * rule_c + 0.65 * challenger_model))
+    challenger_label = "fraud" if challenger_prob >= 0.55 else "legit"
+    delta = round(abs(champion.score - challenger_prob), 4)
+    logger.info("compare tx=%s delta=%.4f", tx.transaction_id, delta)
+    return CompareResponse(
+        transaction_id=tx.transaction_id,
+        champion_score=champion.score,
+        challenger_score=round(challenger_prob, 4),
+        champion_label=champion.label,
+        challenger_label=challenger_label,
+        delta=delta,
+        agreement=champion.label == challenger_label,
     )
 
 
