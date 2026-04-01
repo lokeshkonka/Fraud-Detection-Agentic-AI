@@ -1,0 +1,140 @@
+{
+  "fraud_prevalence": 0.010076,
+  "features": {
+    "amount": {
+      "mean": 399.73422234757015,
+      "variance": 79669.81889948255,
+      "q1": 192.33172704373416,
+      "q3": 539.1929066679513,
+      "lower_whisker": -327.9600423925915,
+      "upper_whisker": 1059.484676104277,
+      "outlier_ratio": 0.031296
+    },
+    "oldbalanceOrg": {
+      "mean": 5004.010846450733,
+      "variance": 2252628.641124452,
+      "q1": 3994.921747452439,
+      "q3": 6017.59590091366,
+      "lower_whisker": 960.9105172606064,
+      "upper_whisker": 9051.607131105493,
+      "outlier_ratio": 0.00704
+    },
+    "newbalanceOrig": {
+      "mean": 4644.275348071686,
+      "variance": 2317848.241369429,
+      "q1": 3620.9460306516867,
+      "q3": 5673.0052917802095,
+      "lower_whisker": 542.8571389589024,
+      "upper_whisker": 8751.094183472993,
+      "outlier_ratio": 0.007048
+    },
+    "oldbalanceDest": {
+      "mean": 2000.0537354790267,
+      "variance": 1000713.4989327858,
+      "q1": 1323.9014045490844,
+      "q3": 2676.4956291348644,
+      "lower_whisker": -704.9899323295856,
+      "upper_whisker": 4705.386966013534,
+      "outlier_ratio": 0.00676
+    },
+    "newbalanceDest": {
+      "mean": 2339.786458524528,
+      "variance": 1059190.7440296689,
+      "q1": 1643.5500514444834,
+      "q3": 3032.815329370156,
+      "lower_whisker": -440.3478654440255,
+      "upper_whisker": 5116.713246258665,
+      "outlier_ratio": 0.006928
+    },
+    "amount_log": {
+      "mean": 5.725405254150661,
+      "variance": 0.6362974724253432,
+      "q1": 5.264407506442727,
+      "q3": 6.291926310326853,
+      "lower_whisker": 3.723129300616538,
+      "upper_whisker": 7.833204516153042,
+      "outlier_ratio": 0.01788
+    },
+    "balance_delta_org": {
+      "mean": 359.7354983790463,
+      "variance": 65354.37047690057,
+      "q1": 172.33303635058792,
+      "q3": 484.9308640740817,
+      "lower_whisker": -296.56370523465273,
+      "upper_whisker": 953.8276056593223,
+      "outlier_ratio": 0.03168
+    },
+    "balance_delta_dest": {
+      "mean": 339.73272304550113,
+      "variance": 59283.0106727803,
+      "q1": 161.56223070487727,
+      "q3": 457.4866535517407,
+      "lower_whisker": -282.32440356541787,
+      "upper_whisker": 901.3732878220358,
+      "outlier_ratio": 0.032512
+    },
+    "amount_to_org_balance_ratio": {
+      "mean": 0.09095584420630892,
+      "variance": 0.007494355414785234,
+      "q1": 0.0382596730546953,
+      "q3": 0.11636575738675953,
+      "lower_whisker": -0.07889945344340105,
+      "upper_whisker": 0.23352488388485587,
+      "outlier_ratio": 0.051068
+    },
+    "amount_to_dest_balance_ratio": {
+      "mean": 0.42163371579187975,
+      "variance": 2.9277071309114673,
+      "q1": 0.0941372279502151,
+      "q3": 0.33271590401576717,
+      "lower_whisker": -0.26373078614811296,
+      "upper_whisker": 0.6905839181140953,
+      "outlier_ratio": 0.087684
+    },
+    "is_large_transaction": {
+      "mean": 0.05,
+      "variance": 0.04750019000075999,
+      "q1": 0.0,
+      "q3": 0.0,
+      "lower_whisker": 0.0,
+      "upper_whisker": 0.0,
+      "outlier_ratio": 0.05
+    },
+    "mean_shift_score": {
+      "mean": 0.7635956450942727,
+      "variance": 0.39911863961315486,
+      "q1": 0.3257828635173673,
+      "q3": 1.0142865801529866,
+      "lower_whisker": -0.7069727114360617,
+      "upper_whisker": 2.0470421551064155,
+      "outlier_ratio": 0.043464
+    },
+    "outlier_flag_amount": {
+      "mean": 0.031296,
+      "variance": 0.030316681650726606,
+      "q1": 0.0,
+      "q3": 0.0,
+      "lower_whisker": 0.0,
+      "upper_whisker": 0.0,
+      "outlier_ratio": 0.031296
+    },
+    "outlier_flag_balance_delta_org": {
+      "mean": 0.03168,
+      "variance": 0.030676500306001213,
+      "q1": 0.0,
+      "q3": 0.0,
+      "lower_whisker": 0.0,
+      "upper_whisker": 0.0,
+      "outlier_ratio": 0.03168
+    },
+    "outlier_flag_balance_delta_dest": {
+      "mean": 0.032512,
+      "variance": 0.031455095676382716,
+      "q1": 0.0,
+      "q3": 0.0,
+      "lower_whisker": 0.0,
+      "upper_whisker": 0.0,
+      "outlier_ratio": 0.032512
+    }
+  }
+}

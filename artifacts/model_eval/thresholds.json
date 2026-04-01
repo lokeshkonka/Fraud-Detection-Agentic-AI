@@ -1,0 +1,74 @@
+{
+  "A_base_lr": {
+    "best_pr_threshold": 0.5332664398868244,
+    "best_roc_threshold": 0.49510942910856626,
+    "pr_auc": 0.01071023912226094,
+    "roc_auc": 0.5123081134021412
+  },
+  "A_base_rf": {
+    "best_pr_threshold": 0.37632295991913567,
+    "best_roc_threshold": 0.31526945921441446,
+    "pr_auc": 0.010001052930224234,
+    "roc_auc": 0.49212907376193293
+  },
+  "A_base_xgb": {
+    "best_pr_threshold": 0.318138062953949,
+    "best_roc_threshold": 0.3181462287902832,
+    "pr_auc": 0.009560799069985993,
+    "roc_auc": 0.48806868071429854
+  },
+  "B_clipped_lr": {
+    "best_pr_threshold": 0.4995078287362725,
+    "best_roc_threshold": 0.49950880770952555,
+    "pr_auc": 0.010686641145670285,
+    "roc_auc": 0.5159097752968975
+  },
+  "B_clipped_rf": {
+    "best_pr_threshold": 0.36713237811279764,
+    "best_roc_threshold": 0.36713858817448214,
+    "pr_auc": 0.009883312803599085,
+    "roc_auc": 0.49072383755236915
+  },
+  "B_clipped_xgb": {
+    "best_pr_threshold": 0.4355465769767761,
+    "best_roc_threshold": 0.38314229249954224,
+    "pr_auc": 0.009800136150023312,
+    "roc_auc": 0.49204507226493854
+  },
+  "C_amount_log_only_lr": {
+    "best_pr_threshold": 0.533006985398859,
+    "best_roc_threshold": 0.5001864642874927,
+    "pr_auc": 0.0107531490319283,
+    "roc_auc": 0.5132256157945103
+  },
+  "C_amount_log_only_rf": {
+    "best_pr_threshold": 0.3327692324926818,
+    "best_roc_threshold": 0.3327701939848284,
+    "pr_auc": 0.010071356018378122,
+    "roc_auc": 0.49582405729114554
+  },
+  "C_amount_log_only_xgb": {
+    "best_pr_threshold": 0.4916800260543823,
+    "best_roc_threshold": 0.4916836619377136,
+    "pr_auc": 0.009898159234239593,
+    "roc_auc": 0.4868189404755491
+  },
+  "D_balance_delta_focus_lr": {
+    "best_pr_threshold": 0.5182047725820167,
+    "best_roc_threshold": 0.49183507328268256,
+    "pr_auc": 0.010441661295649279,
+    "roc_auc": 0.5101870906355107
+  },
+  "D_balance_delta_focus_rf": {
+    "best_pr_threshold": 0.3691706259961797,
+    "best_roc_threshold": 0.30538290738288304,
+    "pr_auc": 0.00991491367015828,
+    "roc_auc": 0.49424692968615713
+  },
+  "D_balance_delta_focus_xgb": {
+    "best_pr_threshold": 0.41114017367362976,
+    "best_roc_threshold": 0.4111642837524414,
+    "pr_auc": 0.009894533261478815,
+    "roc_auc": 0.4893223093544836
+  }
+}

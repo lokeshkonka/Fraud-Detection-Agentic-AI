@@ -4,7 +4,7 @@
 
 ``` txt
 apps/
-├── gateway
+├── api-gateway
 ├── simulation-engine
 ├── ml-inference
 ├── ml-retrain-scheduler

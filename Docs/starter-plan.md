@@ -24,7 +24,7 @@ Create full repo:
 apps/
 packages/
 infra/
-docs/
+Docs/
 data/
 models/
 planner-layer/
@@ -79,7 +79,7 @@ models/
 ## 4) Docker multi-service boot
 
 Heavy container tasks: - postgres - neo4j - redis - kafka - ml service -
-simulation engine - gateway - scheduler
+simulation engine - api-gateway - scheduler
 
 Validate:
 
