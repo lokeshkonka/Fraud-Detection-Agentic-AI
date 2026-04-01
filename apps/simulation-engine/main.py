@@ -4,14 +4,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SimConfig(BaseModel):
-    count: int = 20
-    start_seconds_ago: int = 300
-    max_amount: float = 3000.0
-    fraud_ratio: float = 0.12
+    count: int = Field(default=20, ge=1, le=500)
+    start_seconds_ago: int = Field(default=300, ge=0, le=86400)
+    max_amount: float = Field(default=3000.0, gt=0, le=1000000)
+    fraud_ratio: float = Field(default=0.12, ge=0.0, le=1.0)
 
 
 class SimEvent(BaseModel):

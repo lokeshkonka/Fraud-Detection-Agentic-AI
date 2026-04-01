@@ -10,7 +10,7 @@ class AuditRecord(BaseModel):
     actor: str
     action: str
     target: str
-    timestamp: str
+    timestamp: datetime
 
 
 class CaseRecord(BaseModel):
@@ -19,7 +19,7 @@ class CaseRecord(BaseModel):
     status: str
     severity: str
     owner: str
-    updated_at: str
+    updated_at: datetime
 
 
 class AuditInput(BaseModel):
@@ -31,8 +31,8 @@ class AuditInput(BaseModel):
 app = FastAPI(title="Audit Service", version="0.2.0")
 
 _audits: List[AuditRecord] = [
-    AuditRecord(id="1", actor="system", action="score", target="txn_123", timestamp=datetime.utcnow().isoformat() + "Z"),
-    AuditRecord(id="2", actor="analyst", action="approve", target="case_456", timestamp=datetime.utcnow().isoformat() + "Z"),
+    AuditRecord(id="1", actor="system", action="score", target="txn_123", timestamp=datetime.utcnow()),
+    AuditRecord(id="2", actor="analyst", action="approve", target="case_456", timestamp=datetime.utcnow()),
 ]
 
 _cases: List[CaseRecord] = [
@@ -42,7 +42,7 @@ _cases: List[CaseRecord] = [
         status="open",
         severity="high",
         owner="fraud-ops",
-        updated_at=datetime.utcnow().isoformat() + "Z",
+        updated_at=datetime.utcnow(),
     )
 ]
 
@@ -64,7 +64,7 @@ async def add_audit(payload: AuditInput) -> dict:
         actor=payload.actor,
         action=payload.action,
         target=payload.target,
-        timestamp=datetime.utcnow().isoformat() + "Z",
+        timestamp=datetime.utcnow(),
     )
     _audits.insert(0, record)
     del _audits[200:]

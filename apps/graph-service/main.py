@@ -69,7 +69,8 @@ async def sync_events(payload: SyncPayload) -> dict:
         _edges.append(GraphEdge(source=user_id, target=merchant_node_id, relation="payment", amount=amount))
         added_edges += 1
 
-    del _edges[:-1000]
+    if len(_edges) > 1000:
+        del _edges[:-1000]
 
     return {
         "status": "synced",

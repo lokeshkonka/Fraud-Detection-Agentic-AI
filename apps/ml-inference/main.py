@@ -1,6 +1,6 @@
 from datetime import datetime
 import math
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
@@ -13,7 +13,7 @@ class Transaction(BaseModel):
     merchant: Optional[str] = None
     channel: str = "card"
     timestamp: Optional[datetime] = None
-    features: Dict[str, float] = Field(default_factory=dict)
+    features: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Score(BaseModel):

@@ -73,6 +73,7 @@ async def safe_post_json(url: str, payload: dict, fallback: Any) -> Any:
 
 
 def decision_band(label: str, score: float) -> str:
+    """Map score bands to actions: fraud >=0.85 freeze, fraud >=0.65 hold, lower fraud step-up, non-fraud approve."""
     if label == "fraud" and score >= 0.85:
         return "freeze"
     if label == "fraud" and score >= 0.65:

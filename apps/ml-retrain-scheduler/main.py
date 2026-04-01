@@ -102,10 +102,10 @@ async def retrain_job() -> None:
 
 async def scheduler_loop() -> None:
     global _next_run
-    _next_run = datetime.utcnow() + timedelta(seconds=RUN_INTERVAL_SECONDS)
+    _next_run = datetime.utcnow()
     while True:
-        await asyncio.sleep(RUN_INTERVAL_SECONDS)
         await retrain_job()
+        await asyncio.sleep(RUN_INTERVAL_SECONDS)
 
 
 @app.on_event("startup")

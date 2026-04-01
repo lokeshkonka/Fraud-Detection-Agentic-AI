@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 type RouteKey =
   | '/dashboard'
@@ -42,10 +42,10 @@ function resolveApiBase(): string {
   return 'http://localhost:8000'
 }
 
-function useApi<T>(apiBase: string, path: string, deps: unknown[] = []): [ApiState<T>, () => Promise<void>] {
+function useApi<T>(apiBase: string, path: string): [ApiState<T>, () => Promise<void>] {
   const [state, setState] = useState<ApiState<T>>({ data: null, loading: true, error: null })
 
-  async function load() {
+  const load = useCallback(async () => {
     setState((prev) => ({ ...prev, loading: true }))
     try {
       const resp = await fetch(`${apiBase}${path}`)
@@ -55,12 +55,11 @@ function useApi<T>(apiBase: string, path: string, deps: unknown[] = []): [ApiSta
     } catch {
       setState({ data: null, loading: false, error: `Unable to load ${path}` })
     }
-  }
+  }, [apiBase, path])
 
   useEffect(() => {
     void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiBase, ...deps])
+  }, [load])
 
   return [state, load]
 }
@@ -78,16 +77,16 @@ function App() {
   const initialRoute = ((window.location.hash.replace('#', '') || '/dashboard') as RouteKey)
   const [route, setRoute] = useState<RouteKey>(ROUTES.includes(initialRoute) ? initialRoute : '/dashboard')
 
-  const [health, refreshHealth] = useApi<Record<string, unknown>>(apiBase, '/health', [])
-  const [dashboard, refreshDashboard] = useApi<Record<string, unknown>>(apiBase, '/dashboard/overview', [])
-  const [flow, refreshFlow] = useApi<{ items: Array<Record<string, unknown>> }>(apiBase, '/transaction-flow/recent', [])
-  const [graph, refreshGraph] = useApi<Record<string, unknown>>(apiBase, '/graph-intelligence/network', [])
-  const [graphOverview, refreshGraphOverview] = useApi<Record<string, unknown>>(apiBase, '/graph-intelligence/overview', [])
-  const [modelLab, refreshModelLab] = useApi<Record<string, unknown>>(apiBase, '/model-lab/overview', [])
-  const [modelOps, refreshModelOps] = useApi<Record<string, unknown>>(apiBase, '/model-ops/overview', [])
-  const [cases, refreshCases] = useApi<{ items: Array<Record<string, unknown>> }>(apiBase, '/cases-audit/list', [])
-  const [audits, refreshAudits] = useApi<{ items: Array<Record<string, unknown>> }>(apiBase, '/cases-audit/audits', [])
-  const [rules, refreshRules] = useApi<{ rules: Record<string, unknown> }>(apiBase, '/rule-studio/rules', [])
+  const [health, refreshHealth] = useApi<Record<string, unknown>>(apiBase, '/health')
+  const [dashboard, refreshDashboard] = useApi<Record<string, unknown>>(apiBase, '/dashboard/overview')
+  const [flow, refreshFlow] = useApi<{ items: Array<Record<string, unknown>> }>(apiBase, '/transaction-flow/recent')
+  const [graph, refreshGraph] = useApi<Record<string, unknown>>(apiBase, '/graph-intelligence/network')
+  const [graphOverview, refreshGraphOverview] = useApi<Record<string, unknown>>(apiBase, '/graph-intelligence/overview')
+  const [modelLab, refreshModelLab] = useApi<Record<string, unknown>>(apiBase, '/model-lab/overview')
+  const [modelOps, refreshModelOps] = useApi<Record<string, unknown>>(apiBase, '/model-ops/overview')
+  const [cases, refreshCases] = useApi<{ items: Array<Record<string, unknown>> }>(apiBase, '/cases-audit/list')
+  const [audits, refreshAudits] = useApi<{ items: Array<Record<string, unknown>> }>(apiBase, '/cases-audit/audits')
+  const [rules, refreshRules] = useApi<{ rules: Record<string, unknown> }>(apiBase, '/rule-studio/rules')
 
   const [riskForm, setRiskForm] = useState({ amount: '950', channel: 'card', merchant: '', velocity: '2' })
   const [scoreResult, setScoreResult] = useState<ScorePayload | null>(null)
@@ -101,7 +100,7 @@ function App() {
     setRunState('scoring')
     try {
       const payload = {
-        transaction_id: `tx-${Date.now()}`,
+        transaction_id: `tx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
         user_id: 'demo-user',
         amount: Number(riskForm.amount),
         merchant: riskForm.merchant || null,
@@ -253,8 +252,8 @@ function App() {
             <article className={`${card} lg:col-span-2`}>
               <h2 className="text-lg font-semibold">Recent Decisions</h2>
               <div className="mt-3 grid gap-2">
-                {(flow.data?.items || []).slice(0, 14).map((item, idx) => (
-                  <div key={`${String(item.transaction_id)}-${idx}`} className="grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950/80 p-3 text-xs md:grid-cols-6 md:items-center">
+                {(flow.data?.items || []).slice(0, 14).map((item) => (
+                  <div key={String(item.transaction_id)} className="grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950/80 p-3 text-xs md:grid-cols-6 md:items-center">
                     <p className="truncate md:col-span-2">{String(item.transaction_id || 'tx')}</p>
                     <p>{String(item.channel || '--')}</p>
                     <p>{Math.round(Number(item.score || 0) * 100)}%</p>
@@ -401,8 +400,8 @@ function App() {
             <article className={card}>
               <h2 className="text-lg font-semibold">Cases</h2>
               <div className="mt-3 grid gap-2">
-                {(cases.data?.items || []).map((item, idx) => (
-                  <div key={`${String(item.id)}-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-xs">
+                {(cases.data?.items || []).map((item) => (
+                  <div key={String(item.id)} className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-xs">
                     <p>{String(item.id)}</p>
                     <p>{String(item.status)} · {String(item.severity)}</p>
                     <p className="text-zinc-500">owner: {String(item.owner)}</p>
@@ -413,8 +412,8 @@ function App() {
             <article className={card}>
               <h2 className="text-lg font-semibold">Audit Trail</h2>
               <div className="mt-3 grid gap-2">
-                {(audits.data?.items || []).slice(0, 20).map((item, idx) => (
-                  <div key={`${String(item.id)}-${idx}`} className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-xs">
+                {(audits.data?.items || []).slice(0, 20).map((item) => (
+                  <div key={String(item.id)} className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-xs">
                     <p>{String(item.actor)} · {String(item.action)}</p>
                     <p className="text-zinc-500">{String(item.target)} @ {String(item.timestamp)}</p>
                   </div>
