@@ -89,6 +89,20 @@ export interface RuleSetInput {
   risk_threshold: number
   velocity_limit: number
   high_risk_channels: string[]
+  balance_delta_org_threshold: number
+  balance_delta_dest_threshold: number
+  amount_log_threshold: number
+  amount_to_org_balance_ratio_threshold: number
+  amount_to_dest_balance_ratio_threshold: number
+  queue_risk_score_threshold: number
+  drift_alert_signal_threshold: number
+  mule_cluster_density_threshold: number
+  repeated_beneficiary_anomaly_threshold: number
+  expression_mode: 'AND' | 'OR'
+  confidence_weight: number
+  override_ml_score: boolean
+  shadow_mode: boolean
+  analyst_approval_required: boolean
 }
 
 export interface RuleStudioResponse {
@@ -302,6 +316,39 @@ export interface GraphNetworkResponse {
   rings: RingInfo[]
 }
 
+export interface ClusterActionResponse {
+  cluster_id: string
+  action: string
+  members: string[]
+  linked_accounts: string[]
+  propagated_risk: Record<string, number>
+  updated_nodes: number
+}
+
+export interface ThreatEntityActionResponse {
+  status: string
+  entity_id: string
+  case_id: string
+  graph: Record<string, unknown>
+}
+
+export interface ReplayStep {
+  order: number
+  tx_id: string
+  source: string
+  target: string
+  amount: number
+  timestamp: string
+  risk_score: number
+  cumulative_amount: number
+}
+
+export interface ReplayTimelineResponse {
+  seed: string
+  steps: ReplayStep[]
+  total_amount: number
+}
+
 export interface GraphOverviewResponse {
   nodes: number
   edges: number
@@ -323,6 +370,11 @@ export interface AuditRecord {
   action: string
   target: string
   timestamp: string
+  reason?: string
+  model_version?: string
+  rule_version?: string
+  before_state?: Record<string, unknown>
+  after_state?: Record<string, unknown>
 }
 
 export interface CaseRecord {
@@ -332,6 +384,13 @@ export interface CaseRecord {
   severity: Severity
   owner: string
   updated_at: string
+  fraud_type?: string
+  analyst?: string
+  suspicious_amount?: number
+  linked_entities?: string[]
+  sla_minutes_remaining?: number
+  queue_priority_score?: number
+  shap_preview?: Record<string, number>
 }
 
 export interface AuditListResponse {
@@ -346,4 +405,19 @@ export interface CaseListResponse {
   total: number
   limit: number
   offset: number
+}
+
+export interface CaseEventRecord {
+  id: string
+  actor: string
+  action: string
+  details: Record<string, unknown>
+  created_at: string
+}
+
+export interface CaseCommentRecord {
+  id: string
+  author: string
+  message: string
+  created_at: string
 }

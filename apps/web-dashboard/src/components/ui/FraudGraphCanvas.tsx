@@ -1,50 +1,41 @@
-// ---------------------------------------------------------------------------
-// FraudGraphCanvas — directed transaction graph with edge + node inspection.
-// Performance-safe canvas rendering up to ~200 nodes / 400 edges.
-// ---------------------------------------------------------------------------
-
-import { useEffect, useRef, useState, useCallback } from 'react'
-import type { GraphNode, GraphEdge } from '../../types/api'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation } from 'd3-force'
+import type { GraphEdge, GraphNode, ReplayStep } from '../../types/api'
 
 interface Props {
   nodes: GraphNode[]
   edges: GraphEdge[]
   height?: number
   frozen?: boolean
-  demoActive?: boolean
+  replay?: ReplayStep[]
+  replayIndex?: number
 }
 
-interface SimNode {
-  id: string
-  type: string
-  status: string
-  risk: number
-  totalIn: number
-  totalOut: number
-  sharedDevices: number
-  fraudHistory: number
-  linkedCases: number
+interface SimNode extends GraphNode {
   x: number
   y: number
   vx: number
   vy: number
+  fx?: number
+  fy?: number
 }
 
-const REPULSION = 1200
-const SPRING_K = 0.035
-const SPRING_LEN = 95
-const DAMPING = 0.84
-const GRAVITY = 0.007
-const FREEZE_AFTER_FRAMES = 150
+interface SimLink {
+  source: string
+  target: string
+  amount: number
+  edge: GraphEdge
+}
+
+type Transform = { x: number; y: number; k: number }
+const positionMemory = new Map<string, { x: number; y: number }>()
 
 function nodeTypeColor(type: string, status: string): string {
-  if (status === 'frozen' || type === 'frozen_account') return '#ef4444' // red
-  if (type === 'customer_account') return '#22d3ee' // cyan
-  if (type === 'beneficiary' || type === 'beneficiary_account') return '#60a5fa' // blue
-  if (type === 'mule') return '#f59e0b' // amber
-  if (type === 'sink') return '#a78bfa' // purple
-  if (type === 'merchant') return '#22c55e' // green
-  if (type === 'shared_device_hub') return '#eab308' // yellow
+  if (status === 'frozen' || type === 'frozen_account') return '#ef4444'
+  if (type === 'mule') return '#f59e0b'
+  if (type === 'sink') return '#a78bfa'
+  if (type === 'beneficiary' || type === 'beneficiary_account') return '#60a5fa'
+  if (type === 'customer_account') return '#22d3ee'
   return '#a1a1aa'
 }
 
@@ -52,293 +43,268 @@ function edgeColorByRisk(risk: number): string {
   if (risk >= 0.9) return '#ef4444'
   if (risk >= 0.75) return '#f97316'
   if (risk >= 0.55) return '#f59e0b'
-  return '#71717a'
+  return '#52525b'
 }
 
-function edgeWidthByAmount(amount: number): number {
-  if (amount >= 9000) return 3.2
-  if (amount >= 5000) return 2.6
-  if (amount >= 2500) return 2.0
-  return 1.4
-}
-
-export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false, demoActive = false }: Props) {
+export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, replay = [], replayIndex = -1 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const simRef = useRef<SimNode[]>([])
-  const edgeRef = useRef<Array<{ edge: GraphEdge; si: number; ti: number }>>([])
-  const rafRef = useRef<number>(0)
-  const frameCount = useRef(0)
-
+  const simulationRef = useRef<ReturnType<typeof forceSimulation<SimNode>> | null>(null)
+  const transformRef = useRef<Transform>({ x: 0, y: 0, k: 1 })
+  const dragRef = useRef<{ id: string | null; pointerId: number | null }>({ id: null, pointerId: null })
+  const rafRef = useRef(0)
+  const layoutDebounce = useRef<number | null>(null)
+  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null)
   const [selectedNode, setSelectedNode] = useState<SimNode | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<GraphEdge | null>(null)
-  const [hoverNodeId, setHoverNodeId] = useState<string | null>(null)
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const W = canvas.clientWidth || 760
-    const H = height
-    frameCount.current = 0
-
-    const cappedNodes = nodes.slice(0, 220)
-    const sim: SimNode[] = cappedNodes.map((n, i) => {
-      const layerBias = n.type === 'sink' ? 0.85 : n.type === 'mule' ? 0.62 : n.type.includes('beneficiary') ? 0.45 : 0.2
-      const xBase = W * layerBias
-      const ySpread = ((i * 31) % Math.max(80, H - 100)) + 70
+  const data = useMemo(() => {
+    const cappedNodes = nodes.slice(0, 240)
+    const cappedEdges = edges.slice(0, 500)
+    const simNodes: SimNode[] = cappedNodes.map((n, i) => {
+      const prev = positionMemory.get(n.id)
       return {
-        id: n.id,
-        type: n.type,
-        status: n.status,
-        risk: n.risk_score ?? n.risk ?? 0.1,
-        totalIn: n.total_in ?? 0,
-        totalOut: n.total_out ?? 0,
-        sharedDevices: n.shared_devices ?? 0,
-        fraudHistory: n.fraud_history ?? 0,
-        linkedCases: n.linked_cases ?? 0,
-        x: xBase + (Math.random() - 0.5) * 40,
-        y: ySpread + (Math.random() - 0.5) * 20,
+        ...n,
+        x: prev?.x ?? (180 + ((i * 47) % 520)),
+        y: prev?.y ?? (90 + ((i * 29) % Math.max(220, height - 120))),
         vx: 0,
         vy: 0,
       }
     })
-    simRef.current = sim
-    const idToIdx = new Map(sim.map((n, i) => [n.id, i]))
-    edgeRef.current = edges
-      .slice(0, 420)
-      .map((e) => ({ edge: e, si: idToIdx.get(e.source) ?? -1, ti: idToIdx.get(e.target) ?? -1 }))
-      .filter((e) => e.si >= 0 && e.ti >= 0)
+    const idSet = new Set(simNodes.map((n) => n.id))
+    const simLinks: SimLink[] = cappedEdges
+      .filter((e) => idSet.has(e.source) && idSet.has(e.target))
+      .map((e) => ({ source: e.source, target: e.target, amount: e.amount, edge: e }))
+    return { simNodes, simLinks }
   }, [nodes, edges, height])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    const drawArrow = (x1: number, y1: number, x2: number, y2: number, color: string, width: number, dashed: boolean) => {
-      const dx = x2 - x1
-      const dy = y2 - y1
-      const len = Math.hypot(dx, dy) || 1
-      const ux = dx / len
-      const uy = dy / len
-      const endX = x2 - ux * 10
-      const endY = y2 - uy * 10
-
-      ctx.strokeStyle = color
-      ctx.lineWidth = width
-      ctx.globalAlpha = 0.8
-      if (dashed) ctx.setLineDash([5, 4])
-      else ctx.setLineDash([])
-      ctx.beginPath()
-      ctx.moveTo(x1, y1)
-      ctx.lineTo(endX, endY)
-      ctx.stroke()
-
-      // arrow head
-      const head = 7
-      ctx.setLineDash([])
-      ctx.beginPath()
-      ctx.moveTo(endX, endY)
-      ctx.lineTo(endX - ux * head - uy * (head * 0.55), endY - uy * head + ux * (head * 0.55))
-      ctx.lineTo(endX - ux * head + uy * (head * 0.55), endY - uy * head - ux * (head * 0.55))
-      ctx.closePath()
-      ctx.fillStyle = color
-      ctx.fill()
-      ctx.globalAlpha = 1
+    const resize = () => {
+      canvas.width = canvas.clientWidth || 960
+      canvas.height = height
     }
-
-    function step() {
-      const W = canvas!.width
-      const H = canvas!.height
-      const sim = simRef.current
-      const eIdx = edgeRef.current
-      const physicsActive = !frozen || frameCount.current < FREEZE_AFTER_FRAMES
-
-      if (physicsActive) {
-        frameCount.current++
-        const cy = H / 2
-        for (let i = 0; i < sim.length; i++) {
-          const a = sim[i]
-          // direction bias: keep sink-ish nodes more to the right
-          const targetX = a.type === 'sink' ? W * 0.84 : a.type === 'mule' ? W * 0.63 : a.type.includes('beneficiary') ? W * 0.45 : W * 0.22
-          a.vx += (targetX - a.x) * (GRAVITY * 1.8)
-          a.vy += (cy - a.y) * GRAVITY
-          for (let j = i + 1; j < sim.length; j++) {
-            const b = sim[j]
-            const dx = a.x - b.x
-            const dy = a.y - b.y
-            const d2 = dx * dx + dy * dy + 1
-            const f = REPULSION / d2
-            const nx = dx / Math.sqrt(d2)
-            const ny = dy / Math.sqrt(d2)
-            a.vx += nx * f
-            a.vy += ny * f
-            b.vx -= nx * f
-            b.vy -= ny * f
-          }
-        }
-        for (const e of eIdx) {
-          const a = sim[e.si]
-          const b = sim[e.ti]
-          const dx = b.x - a.x
-          const dy = b.y - a.y
-          const d = Math.sqrt(dx * dx + dy * dy) || 1
-          const force = (d - SPRING_LEN) * SPRING_K
-          const fx = (dx / d) * force
-          const fy = (dy / d) * force
-          a.vx += fx
-          a.vy += fy
-          b.vx -= fx
-          b.vy -= fy
-        }
-        for (const n of sim) {
-          n.vx *= DAMPING
-          n.vy *= DAMPING
-          n.x = Math.max(14, Math.min(W - 14, n.x + n.vx))
-          n.y = Math.max(70, Math.min(H - 14, n.y + n.vy))
-        }
-      }
-
-      ctx!.clearRect(0, 0, W, H)
-      const now = Date.now()
-
-      // edges first
-      const sequenceStep = demoActive ? Math.floor((now % 6000) / 1000) : -1;
-      
-      for (const row of eIdx) {
-        const a = sim[row.si]
-        const b = sim[row.ti]
-        const e = row.edge
-        
-        let color = edgeColorByRisk(e.risk_score ?? 0)
-        let width = edgeWidthByAmount(e.amount ?? 0)
-        let isHighlighted = false;
-        
-        if (demoActive) {
-           // Fake sequence replay
-           if (sequenceStep >= 1 && sequenceStep <= 2 && e.source.includes('victim') && e.target.includes('mule')) { isHighlighted = true; }
-           else if (sequenceStep >= 3 && sequenceStep <= 4 && e.source.includes('mule') && e.target.includes('sink')) { isHighlighted = true; }
-           
-           if (isHighlighted) {
-               color = '#a78bfa'; // violet glowing
-               width = width + 2;
-           } else {
-               color = '#3f3f46'; // dim the rest
-           }
-        }
-        
-        // drawEdge logic...
-        drawArrow(a.x, a.y, b.x, b.y, color, width, !!e.suspicious_burst)
-        if (e.frozen_path || e.decision === 'freeze' || isHighlighted) {
-          ctx!.strokeStyle = isHighlighted ? 'rgba(167,139,250,0.5)' : 'rgba(239,68,68,0.24)'
-          ctx!.lineWidth = width + 4
-          ctx!.beginPath()
-          ctx!.moveTo(a.x, a.y)
-          ctx!.lineTo(b.x, b.y)
-          ctx!.stroke()
-        }
-      }
-
-      // nodes
-      for (const n of sim) {
-        const r = 7 + Math.min(10, n.risk * 9)
-        const color = nodeTypeColor(n.type, n.status)
-        const isHovered = hoverNodeId === n.id
-        const isSelected = selectedNode?.id === n.id
-        if (n.status === 'frozen' || n.risk >= 0.9) {
-          const pulse = 0.38 + 0.36 * Math.sin(now / 350)
-          ctx!.beginPath()
-          ctx!.arc(n.x, n.y, r + 3 + pulse * 6, 0, Math.PI * 2)
-          ctx!.fillStyle = `rgba(239,68,68,${pulse * 0.26})`
-          ctx!.fill()
-        }
-        ctx!.beginPath()
-        ctx!.arc(n.x, n.y, r, 0, Math.PI * 2)
-        ctx!.fillStyle = `${color}66`
-        ctx!.fill()
-        ctx!.lineWidth = isSelected || isHovered ? 2.8 : 1.5
-        ctx!.strokeStyle = isSelected ? '#ffffff' : color
-        ctx!.stroke()
-      }
-
-      rafRef.current = requestAnimationFrame(step)
-    }
-
-    rafRef.current = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(rafRef.current)
-  }, [frozen, selectedNode, hoverNodeId])
+    resize()
+    const obs = new ResizeObserver(resize)
+    obs.observe(canvas)
+    return () => obs.disconnect()
+  }, [height])
 
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
-    const obs = new ResizeObserver(() => {
-      canvas.width = canvas.clientWidth
-      canvas.height = height
-    })
-    obs.observe(canvas)
-    canvas.width = canvas.clientWidth || 760
-    canvas.height = height
-    return () => obs.disconnect()
-  }, [height])
-
-  const nearestNode = (mx: number, my: number): SimNode | null => {
-    let best: SimNode | null = null
-    let bestDist = Infinity
-    for (const n of simRef.current) {
-      const d = Math.hypot(n.x - mx, n.y - my)
-      if (d < 18 && d < bestDist) {
-        best = n
-        bestDist = d
+    if (layoutDebounce.current) window.clearTimeout(layoutDebounce.current)
+    layoutDebounce.current = window.setTimeout(() => {
+      simulationRef.current?.stop()
+      const W = canvas.width || 960
+      const H = canvas.height || height
+      const sim = forceSimulation<SimNode>(data.simNodes)
+        .force('charge', forceManyBody<SimNode>().strength(-55).distanceMin(18).distanceMax(300))
+        .force('collide', forceCollide<SimNode>().radius((d) => 9 + Math.min(9, (d.risk_score ?? d.risk ?? 0) * 10)).strength(0.9))
+        .force('link', forceLink<SimNode, SimLink>(data.simLinks).id((d) => d.id).distance(78).strength(0.08))
+        .force('center', forceCenter(W / 2, H / 2))
+        .alpha(0.95)
+        .alphaDecay(0.045)
+      simulationRef.current = sim
+      const persist = () => {
+        for (const n of data.simNodes) {
+          if (Number.isFinite(n.x) && Number.isFinite(n.y)) {
+            positionMemory.set(n.id, { x: n.x, y: n.y })
+          }
+        }
       }
-    }
-    return best
-  }
+      const render = () => {
+        const ctx = canvas.getContext('2d')
+        if (!ctx) return
+        const { x: tx, y: ty, k } = transformRef.current
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.save()
+        ctx.translate(tx, ty)
+        ctx.scale(k, k)
 
-  const nearestEdge = (mx: number, my: number): GraphEdge | null => {
-    let best: GraphEdge | null = null
-    let bestDist = 9
-    for (const row of edgeRef.current) {
-      const a = simRef.current[row.si]
-      const b = simRef.current[row.ti]
-      const dx = b.x - a.x
-      const dy = b.y - a.y
-      const len2 = dx * dx + dy * dy
-      if (len2 <= 1) continue
-      const t = Math.max(0, Math.min(1, ((mx - a.x) * dx + (my - a.y) * dy) / len2))
-      const px = a.x + t * dx
-      const py = a.y + t * dy
-      const d = Math.hypot(mx - px, my - py)
-      if (d < bestDist) {
-        bestDist = d
-        best = row.edge
+        const activeReplay = replayIndex >= 0 ? replay[replayIndex] : null
+        for (const link of data.simLinks) {
+          const s = data.simNodes.find((n) => n.id === link.source)
+          const t = data.simNodes.find((n) => n.id === link.target)
+          if (!s || !t) continue
+          const replayHit = !!activeReplay && activeReplay.tx_id === link.edge.tx_id
+          ctx.beginPath()
+          ctx.moveTo(s.x, s.y)
+          ctx.lineTo(t.x, t.y)
+          ctx.strokeStyle = replayHit ? '#a78bfa' : edgeColorByRisk(link.edge.risk_score ?? 0)
+          ctx.lineWidth = replayHit ? 4 : 1.5
+          ctx.globalAlpha = replayHit ? 0.95 : 0.78
+          ctx.stroke()
+          if (replayHit) {
+            ctx.strokeStyle = 'rgba(167,139,250,0.35)'
+            ctx.lineWidth = 8
+            ctx.stroke()
+          }
+        }
+        ctx.globalAlpha = 1
+        for (const n of data.simNodes) {
+          const r = 7 + Math.min(9, (n.risk_score ?? n.risk ?? 0) * 8)
+          ctx.beginPath()
+          ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
+          const c = nodeTypeColor(n.type, n.status)
+          ctx.fillStyle = `${c}66`
+          ctx.fill()
+          ctx.strokeStyle = selectedNode?.id === n.id ? '#ffffff' : c
+          ctx.lineWidth = selectedNode?.id === n.id ? 2.4 : 1.4
+          ctx.stroke()
+          if (n.status === 'frozen') {
+            ctx.beginPath()
+            ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2)
+            ctx.strokeStyle = 'rgba(239,68,68,0.45)'
+            ctx.lineWidth = 2
+            ctx.stroke()
+          }
+        }
+        ctx.restore()
+        persist()
+        rafRef.current = requestAnimationFrame(render)
       }
+      cancelAnimationFrame(rafRef.current)
+      render()
+      if (frozen) {
+        window.setTimeout(() => {
+          simulationRef.current?.alphaTarget(0).stop()
+        }, 1300)
+      }
+    }, 80)
+    return () => {
+      if (layoutDebounce.current) window.clearTimeout(layoutDebounce.current)
     }
-    return best
-  }
+  }, [data, frozen, replay, replayIndex, selectedNode, height])
 
-  const handleMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const c = canvasRef.current
-    if (!c) return
-    const r = c.getBoundingClientRect()
-    const mx = e.clientX - r.left
-    const my = e.clientY - r.top
-    const n = nearestNode(mx, my)
-    setHoverNodeId(n?.id ?? null)
+  useEffect(() => () => {
+    simulationRef.current?.stop()
+    cancelAnimationFrame(rafRef.current)
   }, [])
 
-  const handleClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    const c = canvasRef.current
-    if (!c) return
-    const r = c.getBoundingClientRect()
-    const mx = e.clientX - r.left
-    const my = e.clientY - r.top
-    const n = nearestNode(mx, my)
+  function toWorld(clientX: number, clientY: number) {
+    const canvas = canvasRef.current
+    if (!canvas) return { x: 0, y: 0 }
+    const rect = canvas.getBoundingClientRect()
+    const px = clientX - rect.left
+    const py = clientY - rect.top
+    const { x, y, k } = transformRef.current
+    return { x: (px - x) / k, y: (py - y) / k }
+  }
+
+  function nearestNode(wx: number, wy: number): SimNode | null {
+    let best: SimNode | null = null
+    let bestD = Infinity
+    for (const n of data.simNodes) {
+      const d = Math.hypot(n.x - wx, n.y - wy)
+      if (d < 18 && d < bestD) {
+        best = n
+        bestD = d
+      }
+    }
+    return best
+  }
+
+  function nearestEdge(wx: number, wy: number): GraphEdge | null {
+    let best: GraphEdge | null = null
+    let bestD = 8
+    for (const link of data.simLinks) {
+      const s = data.simNodes.find((n) => n.id === link.source)
+      const t = data.simNodes.find((n) => n.id === link.target)
+      if (!s || !t) continue
+      const dx = t.x - s.x
+      const dy = t.y - s.y
+      const len2 = dx * dx + dy * dy
+      if (len2 <= 1) continue
+      const u = Math.max(0, Math.min(1, ((wx - s.x) * dx + (wy - s.y) * dy) / len2))
+      const px = s.x + u * dx
+      const py = s.y + u * dy
+      const d = Math.hypot(wx - px, wy - py)
+      if (d < bestD) {
+        bestD = d
+        best = link.edge
+      }
+    }
+    return best
+  }
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const p = toWorld(e.clientX, e.clientY)
+    const n = nearestNode(p.x, p.y)
+    if (n) {
+      dragRef.current = { id: n.id, pointerId: e.pointerId }
+      n.fx = n.x
+      n.fy = n.y
+      simulationRef.current?.alphaTarget(0.12).restart()
+      return
+    }
+    dragRef.current = { id: '__pan__', pointerId: e.pointerId }
+    ;(e.currentTarget as HTMLCanvasElement).setPointerCapture(e.pointerId)
+  }
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const p = toWorld(e.clientX, e.clientY)
+    const dragging = dragRef.current
+    if (dragging.pointerId === e.pointerId && dragging.id && dragging.id !== '__pan__') {
+      const n = data.simNodes.find((x) => x.id === dragging.id)
+      if (n) {
+        n.fx = p.x
+        n.fy = p.y
+      }
+      return
+    }
+    if (dragging.pointerId === e.pointerId && dragging.id === '__pan__') {
+      transformRef.current = {
+        ...transformRef.current,
+        x: transformRef.current.x + e.movementX,
+        y: transformRef.current.y + e.movementY,
+      }
+      return
+    }
+    const hover = nearestNode(p.x, p.y)
+    setHoverNodeId(hover?.id ?? null)
+  }
+
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const dragging = dragRef.current
+    if (dragging.pointerId === e.pointerId && dragging.id && dragging.id !== '__pan__') {
+      const n = data.simNodes.find((x) => x.id === dragging.id)
+      if (n) {
+        n.fx = undefined
+        n.fy = undefined
+      }
+      simulationRef.current?.alphaTarget(0.02).restart()
+    }
+    dragRef.current = { id: null, pointerId: null }
+    ;(e.currentTarget as HTMLCanvasElement).releasePointerCapture(e.pointerId)
+  }
+
+  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const px = e.clientX - rect.left
+    const py = e.clientY - rect.top
+    const current = transformRef.current
+    const zoom = Math.exp(-e.deltaY * 0.001)
+    const nextK = Math.max(0.35, Math.min(2.8, current.k * zoom))
+    const ratio = nextK / current.k
+    transformRef.current = {
+      k: nextK,
+      x: px - (px - current.x) * ratio,
+      y: py - (py - current.y) * ratio,
+    }
+  }
+
+  const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const p = toWorld(e.clientX, e.clientY)
+    const n = nearestNode(p.x, p.y)
     if (n) {
       setSelectedNode(n)
       setSelectedEdge(null)
       return
     }
-    const edge = nearestEdge(mx, my)
+    const edge = nearestEdge(p.x, p.y)
     if (edge) {
       setSelectedEdge(edge)
       setSelectedNode(null)
@@ -346,84 +312,51 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false, d
     }
     setSelectedNode(null)
     setSelectedEdge(null)
-  }, [])
-
-  const displayedNodes = Math.min(nodes.length, 220)
-  const displayedEdges = Math.min(edges.length, 420)
+  }
 
   return (
     <div className="relative w-full rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
-      <div className="absolute right-3 top-3 z-10 flex gap-2">
-        <span className="rounded-md border border-zinc-700 bg-zinc-900/90 px-2 py-0.5 text-[10px] text-zinc-400">
-          {displayedNodes} nodes
-        </span>
-        <span className="rounded-md border border-zinc-700 bg-zinc-900/90 px-2 py-0.5 text-[10px] text-zinc-400">
-          {displayedEdges} edges
-        </span>
-      </div>
-
       <canvas
         ref={canvasRef}
-        onMouseMove={handleMove}
-        onClick={handleClick}
-        className="w-full cursor-crosshair"
         style={{ height }}
+        className="w-full touch-none cursor-crosshair"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onWheel={onWheel}
+        onClick={onClick}
       />
-
-      {hoverNodeId && (
-        <div className="absolute left-3 top-10 rounded-md border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-[10px] text-zinc-300">
-          {hoverNodeId}
-        </div>
-      )}
-
+      <div className="absolute right-3 top-3 z-10 flex gap-2">
+        <span className="rounded-md border border-zinc-700 bg-zinc-900/90 px-2 py-0.5 text-[10px] text-zinc-400">{data.simNodes.length} nodes</span>
+        <span className="rounded-md border border-zinc-700 bg-zinc-900/90 px-2 py-0.5 text-[10px] text-zinc-400">{data.simLinks.length} edges</span>
+      </div>
+      {hoverNodeId && <div className="absolute left-3 top-10 rounded-md border border-zinc-700 bg-zinc-900/90 px-2 py-1 text-[10px] text-zinc-300">{hoverNodeId}</div>}
       {selectedNode && (
-        <div className="absolute right-3 top-3 w-[240px] rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 text-xs">
+        <div className="absolute right-3 top-12 w-[250px] rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 text-xs">
           <button type="button" onClick={() => setSelectedNode(null)} className="absolute right-2 top-1 text-zinc-600 hover:text-zinc-300">✕</button>
           <p className="text-zinc-500">Node</p>
           <p className="font-mono text-[10px] text-zinc-300 break-all">{selectedNode.id}</p>
           <p className="mt-2 text-zinc-500">Type / Status</p>
           <p className="text-zinc-300">{selectedNode.type} · {selectedNode.status}</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
-            <div><p className="text-zinc-500">Total Sent</p><p className="text-zinc-200">${selectedNode.totalOut.toFixed(2)}</p></div>
-            <div><p className="text-zinc-500">Total Received</p><p className="text-zinc-200">${selectedNode.totalIn.toFixed(2)}</p></div>
-            <div><p className="text-zinc-500">Shared Devices</p><p className="text-zinc-200">{selectedNode.sharedDevices}</p></div>
-            <div><p className="text-zinc-500">Fraud History</p><p className="text-zinc-200">{selectedNode.fraudHistory}</p></div>
+            <div><p className="text-zinc-500">Risk</p><p className="text-zinc-200">{((selectedNode.risk_score ?? selectedNode.risk ?? 0) * 100).toFixed(1)}%</p></div>
+            <div><p className="text-zinc-500">Linked Cases</p><p className="text-zinc-200">{selectedNode.linked_cases ?? 0}</p></div>
+            <div><p className="text-zinc-500">Total Out</p><p className="text-zinc-200">${(selectedNode.total_out ?? 0).toFixed(2)}</p></div>
+            <div><p className="text-zinc-500">Total In</p><p className="text-zinc-200">${(selectedNode.total_in ?? 0).toFixed(2)}</p></div>
           </div>
-          <p className="mt-2 text-zinc-500">Linked Cases</p>
-          <p className="text-zinc-200">{selectedNode.linkedCases}</p>
         </div>
       )}
-
       {selectedEdge && (
-        <div className="absolute right-3 top-3 w-[260px] rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 text-xs">
+        <div className="absolute right-3 top-12 w-[260px] rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 text-xs">
           <button type="button" onClick={() => setSelectedEdge(null)} className="absolute right-2 top-1 text-zinc-600 hover:text-zinc-300">✕</button>
           <p className="text-zinc-500">Transaction</p>
           <p className="font-mono text-[10px] text-zinc-300 break-all">{selectedEdge.tx_id}</p>
           <div className="mt-2 grid grid-cols-2 gap-2">
             <div><p className="text-zinc-500">Amount</p><p className="text-zinc-200">${selectedEdge.amount.toFixed(2)}</p></div>
-            <div><p className="text-zinc-500">Channel</p><p className="text-zinc-200">{selectedEdge.channel}</p></div>
             <div><p className="text-zinc-500">Risk</p><p className="text-zinc-200">{(selectedEdge.risk_score * 100).toFixed(1)}%</p></div>
-            <div><p className="text-zinc-500">Decision</p><p className="text-zinc-200">{selectedEdge.decision}</p></div>
           </div>
-          <p className="mt-2 text-zinc-500">Timestamp</p>
-          <p className="text-zinc-200">{new Date(selectedEdge.timestamp).toLocaleString()}</p>
-          <p className="mt-2 text-zinc-500">Fraud Flag</p>
-          <p className={`${selectedEdge.is_fraud ? 'text-red-400' : 'text-emerald-400'}`}>{selectedEdge.is_fraud ? 'fraud' : 'legit'}</p>
-          {selectedEdge.case_link && (
-            <p className="mt-2 text-cyan-300 text-[11px]">Case link: {selectedEdge.case_link}</p>
-          )}
         </div>
       )}
-
-      <div className="absolute bottom-3 left-3 flex flex-wrap gap-3 rounded-lg border border-zinc-800 bg-zinc-950/80 px-3 py-2 text-[10px] text-zinc-400">
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-cyan-400" />customer</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-blue-400" />beneficiary</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-amber-400" />mule</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-purple-400" />sink</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-green-400" />merchant</span>
-        <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-full bg-red-400" />frozen</span>
-      </div>
-
       {nodes.length === 0 && (
         <div className="absolute inset-0 flex items-center justify-center">
           <p className="text-sm text-zinc-600">No transaction graph yet — run simulation</p>

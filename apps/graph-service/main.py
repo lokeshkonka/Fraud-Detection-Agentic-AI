@@ -1,9 +1,10 @@
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
 from psycopg import Connection
 from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
@@ -79,12 +80,53 @@ class SyncResponse(BaseModel):
     total_edges: int
 
 
+class ClusterActionPayload(BaseModel):
+    action: Literal["expand_cluster", "isolate_cluster", "trace_inbound_funds", "trace_outbound_funds", "mark_mule_ring_suspicious"]
+
+
+class ClusterActionResponse(BaseModel):
+    cluster_id: str
+    action: str
+    members: List[str]
+    linked_accounts: List[str]
+    propagated_risk: Dict[str, float]
+    updated_nodes: int
+
+
+class FreezeResponse(BaseModel):
+    entity_id: str
+    status: str
+    risk_score: float
+    updated_at: str
+
+
+class ReplayStep(BaseModel):
+    order: int
+    tx_id: str
+    source: str
+    target: str
+    amount: float
+    timestamp: str
+    risk_score: float
+    cumulative_amount: float
+
+
+class ReplayTimelineResponse(BaseModel):
+    seed: str
+    steps: List[ReplayStep]
+    total_amount: float
+
+
 app = FastAPI(title="Graph Service", version="0.4.0")
 
 
 @app.on_event("startup")
 def startup() -> None:
     app.state.db = Connection.connect(DATABASE_URL, autocommit=True, row_factory=dict_row)
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("ALTER TABLE graph_nodes ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'")
+        cur.execute("ALTER TABLE graph_nodes ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()")
 
 
 @app.on_event("shutdown")
@@ -181,6 +223,14 @@ def tx_edges_from_transactions(limit: int) -> List[GraphEdge]:
     return edges
 
 
+def manual_node_state() -> Dict[str, Dict[str, object]]:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT id, risk, status FROM graph_nodes")
+        rows = cur.fetchall()
+    return {str(r["id"]): {"risk": float(r["risk"] or 0.0), "status": str(r["status"] or "active")} for r in rows}
+
+
 def compute_nodes_from_edges(edges: List[GraphEdge]) -> List[GraphNode]:
     in_sum: Dict[str, float] = {}
     out_sum: Dict[str, float] = {}
@@ -205,11 +255,16 @@ def compute_nodes_from_edges(edges: List[GraphEdge]) -> List[GraphNode]:
 
     all_ids = set(in_sum) | set(out_sum)
     nodes: List[GraphNode] = []
+    manual = manual_node_state()
     for aid in all_ids:
         risk_score = max_risk.get(aid, 0.05)
         decision = last_decision.get(aid, "approve")
         ntype = infer_account_type(aid, decision, fraud_count.get(aid, 0))
         status = account_status(risk_score, decision)
+        if aid in manual:
+            risk_score = max(risk_score, float(manual[aid]["risk"]))
+            if str(manual[aid]["status"]) in {"frozen", "held", "active", "watch_high", "watch_critical"}:
+                status = str(manual[aid]["status"])
         label = ntype.replace("_", " ")
         nodes.append(
             GraphNode(
@@ -230,6 +285,19 @@ def compute_nodes_from_edges(edges: List[GraphEdge]) -> List[GraphNode]:
     # keep performant
     nodes.sort(key=lambda n: n.risk_score, reverse=True)
     return nodes[:220]
+
+
+def compute_rings(nodes: List[GraphNode]) -> List[RingInfo]:
+    mule_nodes = [n.id for n in nodes if n.type == "mule"][:12]
+    sink_nodes = [n.id for n in nodes if n.type == "sink"][:3]
+    rings: List[RingInfo] = []
+    if mule_nodes:
+        rings.append(RingInfo(id="mule-ring-alpha", members=mule_nodes[:6], risk=0.92))
+    if len(mule_nodes) > 6:
+        rings.append(RingInfo(id="mule-ring-beta", members=mule_nodes[6:12], risk=0.84))
+    if sink_nodes:
+        rings.append(RingInfo(id="sink-exit", members=sink_nodes, risk=0.97))
+    return rings
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -268,19 +336,25 @@ async def sync_events(payload: SyncPayload) -> SyncResponse:
             target = f"merchant_{merchant}" if merchant else "beneficiary_unknown"
             cur.execute(
                 """
-                INSERT INTO graph_nodes(id, label, risk)
-                VALUES (%s,'customer_account',%s)
-                ON CONFLICT (id) DO NOTHING
+                INSERT INTO graph_nodes(id, label, risk, status, updated_at)
+                VALUES (%s,'customer_account',%s,%s,NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                  risk = GREATEST(graph_nodes.risk, EXCLUDED.risk),
+                  status = CASE WHEN EXCLUDED.status='frozen' THEN 'frozen' ELSE graph_nodes.status END,
+                  updated_at = NOW()
                 """,
-                (user_id, 0.15),
+                (user_id, 0.15, "frozen" if str(event.get("decision", "")) == "freeze" else "active"),
             )
             cur.execute(
                 """
-                INSERT INTO graph_nodes(id, label, risk)
-                VALUES (%s,'beneficiary_account',%s)
-                ON CONFLICT (id) DO NOTHING
+                INSERT INTO graph_nodes(id, label, risk, status, updated_at)
+                VALUES (%s,'beneficiary_account',%s,%s,NOW())
+                ON CONFLICT (id) DO UPDATE SET
+                  risk = GREATEST(graph_nodes.risk, EXCLUDED.risk),
+                  status = CASE WHEN EXCLUDED.status='frozen' THEN 'frozen' ELSE graph_nodes.status END,
+                  updated_at = NOW()
                 """,
-                (target, 0.10),
+                (target, 0.10, "frozen" if str(event.get("decision", "")) == "freeze" else "active"),
             )
             cur.execute(
                 "INSERT INTO graph_edges(source, target, relation, amount) VALUES (%s,%s,%s,%s)",
@@ -316,16 +390,164 @@ async def overview() -> GraphOverviewResponse:
 async def rings() -> RingsResponse:
     edges = tx_edges_from_transactions(2000)
     nodes = compute_nodes_from_edges(edges)
-    mule_nodes = [n.id for n in nodes if n.type == "mule"][:12]
-    sink_nodes = [n.id for n in nodes if n.type == "sink"][:3]
-    rings: List[RingInfo] = []
-    if mule_nodes:
-        rings.append(RingInfo(id="mule-ring-alpha", members=mule_nodes[:6], risk=0.92))
-    if len(mule_nodes) > 6:
-        rings.append(RingInfo(id="mule-ring-beta", members=mule_nodes[6:12], risk=0.84))
-    if sink_nodes:
-        rings.append(RingInfo(id="sink-exit", members=sink_nodes, risk=0.97))
-    return RingsResponse(rings=rings)
+    return RingsResponse(rings=compute_rings(nodes))
+
+
+@app.post("/clusters/{cluster_id}/actions", response_model=ClusterActionResponse)
+async def cluster_action(cluster_id: str, payload: ClusterActionPayload) -> ClusterActionResponse:
+    edges = tx_edges_from_transactions(2500)
+    nodes = compute_nodes_from_edges(edges)
+    rings = compute_rings(nodes)
+    ring = next((r for r in rings if r.id == cluster_id), None)
+    if not ring:
+        raise HTTPException(status_code=404, detail=f"cluster {cluster_id!r} not found")
+
+    member_set = set(ring.members)
+    linked: set[str] = set()
+    for e in edges:
+        if e.source in member_set:
+            linked.add(e.target)
+        if e.target in member_set:
+            linked.add(e.source)
+    linked_accounts = sorted(linked - member_set)[:40]
+
+    propagated: Dict[str, float] = {}
+    for nid in list(member_set) + linked_accounts:
+        related = [e for e in edges if e.source == nid or e.target == nid]
+        if not related:
+            propagated[nid] = 0.1
+            continue
+        risk = sum(e.risk_score for e in related) / max(1, len(related))
+        if nid in member_set:
+            risk = min(0.99, risk + 0.12)
+        propagated[nid] = round(risk, 4)
+
+    db: Connection = app.state.db
+    updated = 0
+    with db.cursor() as cur:
+        if payload.action == "mark_mule_ring_suspicious":
+            for nid in member_set:
+                cur.execute(
+                    """
+                    INSERT INTO graph_nodes(id, label, risk, status, updated_at)
+                    VALUES (%s,'mule',0.92,'watch_critical',NOW())
+                    ON CONFLICT (id) DO UPDATE SET risk=GREATEST(graph_nodes.risk, 0.92), status='watch_critical', updated_at=NOW()
+                    """,
+                    (nid,),
+                )
+                updated += 1
+
+    if payload.action == "isolate_cluster":
+        linked_accounts = []
+    elif payload.action == "trace_inbound_funds":
+        linked_accounts = sorted({e.source for e in edges if e.target in member_set})[:40]
+    elif payload.action == "trace_outbound_funds":
+        linked_accounts = sorted({e.target for e in edges if e.source in member_set})[:40]
+    elif payload.action == "expand_cluster":
+        linked_accounts = linked_accounts[:60]
+
+    return ClusterActionResponse(
+        cluster_id=cluster_id,
+        action=payload.action,
+        members=ring.members,
+        linked_accounts=linked_accounts,
+        propagated_risk=propagated,
+        updated_nodes=updated,
+    )
+
+
+@app.post("/threat-entities/{entity_id}/freeze", response_model=FreezeResponse)
+async def freeze_entity(entity_id: str) -> FreezeResponse:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO graph_nodes(id, label, risk, status, updated_at)
+            VALUES (%s, 'frozen_account', 0.99, 'frozen', NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              risk = GREATEST(graph_nodes.risk, 0.99),
+              status = 'frozen',
+              updated_at = NOW()
+            RETURNING id, risk, status, updated_at
+            """,
+            (entity_id,),
+        )
+        row = cur.fetchone()
+    return FreezeResponse(
+        entity_id=str(row["id"]),
+        status=str(row["status"]),
+        risk_score=float(row["risk"]),
+        updated_at=row["updated_at"].isoformat().replace("+00:00", "Z"),
+    )
+
+
+@app.post("/threat-entities/{entity_id}/rollback", response_model=FreezeResponse)
+async def rollback_entity(entity_id: str) -> FreezeResponse:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE graph_nodes
+            SET status='active', risk=LEAST(risk, 0.65), updated_at=NOW()
+            WHERE id=%s
+            RETURNING id, risk, status, updated_at
+            """,
+            (entity_id,),
+        )
+        row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"entity {entity_id!r} not found")
+    return FreezeResponse(
+        entity_id=str(row["id"]),
+        status=str(row["status"]),
+        risk_score=float(row["risk"]),
+        updated_at=row["updated_at"].isoformat().replace("+00:00", "Z"),
+    )
+
+
+@app.get("/replay-path", response_model=ReplayTimelineResponse)
+async def replay_path(seed: str = "demo_victim_01", limit: int = 20) -> ReplayTimelineResponse:
+    limit = max(4, min(limit, 60))
+    edges = tx_edges_from_transactions(3000)
+    suspicious = [e for e in edges if e.is_fraud or e.risk_score >= 0.8 or e.frozen_path]
+    suspicious.sort(key=lambda e: e.timestamp)
+    path: List[GraphEdge] = []
+
+    cursor = seed
+    used_tx: set[str] = set()
+    for _ in range(limit):
+        nxt = next((e for e in suspicious if e.source == cursor and e.tx_id not in used_tx), None)
+        if not nxt:
+            nxt = next((e for e in suspicious if e.source == cursor), None)
+        if not nxt:
+            break
+        path.append(nxt)
+        used_tx.add(nxt.tx_id)
+        cursor = nxt.target
+
+    if not path:
+        fallback = suspicious[: min(limit, len(suspicious))]
+        if not fallback:
+            return ReplayTimelineResponse(seed=seed, steps=[], total_amount=0.0)
+        path = fallback
+
+    steps: List[ReplayStep] = []
+    cumulative = 0.0
+    for i, e in enumerate(path, start=1):
+        cumulative += float(e.amount)
+        steps.append(
+            ReplayStep(
+                order=i,
+                tx_id=e.tx_id,
+                source=e.source,
+                target=e.target,
+                amount=float(e.amount),
+                timestamp=e.timestamp,
+                risk_score=float(e.risk_score),
+                cumulative_amount=round(cumulative, 2),
+            )
+        )
+    return ReplayTimelineResponse(seed=seed, steps=steps, total_amount=round(cumulative, 2))
 
 
 if __name__ == "__main__":

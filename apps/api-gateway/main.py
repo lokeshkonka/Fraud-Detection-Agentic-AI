@@ -1,11 +1,14 @@
+import csv
+import io
 import json
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
 from psycopg import Connection
@@ -39,6 +42,20 @@ class RuleSetInput(BaseModel):
     risk_threshold: float = 0.55
     velocity_limit: int = 4
     high_risk_channels: List[str] = Field(default_factory=lambda: ["wire", "crypto", "upi"])
+    balance_delta_org_threshold: float = 2500.0
+    balance_delta_dest_threshold: float = 2500.0
+    amount_log_threshold: float = 7.0
+    amount_to_org_balance_ratio_threshold: float = 0.6
+    amount_to_dest_balance_ratio_threshold: float = 1.2
+    queue_risk_score_threshold: float = 0.7
+    drift_alert_signal_threshold: float = 0.15
+    mule_cluster_density_threshold: float = 0.4
+    repeated_beneficiary_anomaly_threshold: float = 3.0
+    expression_mode: Literal["AND", "OR"] = "AND"
+    confidence_weight: float = 0.5
+    override_ml_score: bool = False
+    shadow_mode: bool = True
+    analyst_approval_required: bool = False
 
 
 class SimRunConfig(BaseModel):
@@ -139,10 +156,100 @@ class ItemListResponse(BaseModel):
     items: List[Any]
 
 
+class ItemEnvelopeResponse(BaseModel):
+    items: List[Any]
+    total: int = 0
+    limit: int = 0
+    offset: int = 0
+
+
+class ClusterActionInput(BaseModel):
+    action: Literal["expand_cluster", "isolate_cluster", "trace_inbound_funds", "trace_outbound_funds", "mark_mule_ring_suspicious"]
+
+
+class ThreatEntityActionResponse(BaseModel):
+    status: str
+    entity_id: str
+    case_id: str
+    graph: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CaseActionInput(BaseModel):
+    action: Literal["freeze", "escalate", "close", "assign"]
+    owner: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class CaseCommentInput(BaseModel):
+    author: str
+    message: str
+
+
+class CaseAttachmentInput(BaseModel):
+    author: str
+    filename: str
+    content_type: str = "application/octet-stream"
+    payload: str = ""
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SEC)
     app.state.db = Connection.connect(DATABASE_URL, autocommit=True, row_factory=dict_row)
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS balance_delta_org_threshold DOUBLE PRECISION NOT NULL DEFAULT 2500")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS balance_delta_dest_threshold DOUBLE PRECISION NOT NULL DEFAULT 2500")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS amount_log_threshold DOUBLE PRECISION NOT NULL DEFAULT 7.0")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS amount_to_org_balance_ratio_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.6")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS amount_to_dest_balance_ratio_threshold DOUBLE PRECISION NOT NULL DEFAULT 1.2")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS queue_risk_score_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.7")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS drift_alert_signal_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.15")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS mule_cluster_density_threshold DOUBLE PRECISION NOT NULL DEFAULT 0.4")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS repeated_beneficiary_anomaly_threshold DOUBLE PRECISION NOT NULL DEFAULT 3.0")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS expression_mode TEXT NOT NULL DEFAULT 'AND'")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS confidence_weight DOUBLE PRECISION NOT NULL DEFAULT 0.5")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS override_ml_score BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS shadow_mode BOOLEAN NOT NULL DEFAULT TRUE")
+        cur.execute("ALTER TABLE rules_config ADD COLUMN IF NOT EXISTS analyst_approval_required BOOLEAN NOT NULL DEFAULT FALSE")
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS case_comments (
+              id BIGSERIAL PRIMARY KEY,
+              case_id TEXT NOT NULL,
+              author TEXT NOT NULL,
+              message TEXT NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS case_events (
+              id BIGSERIAL PRIMARY KEY,
+              case_id TEXT NOT NULL,
+              actor TEXT NOT NULL,
+              action TEXT NOT NULL,
+              details JSONB NOT NULL DEFAULT '{}'::jsonb,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS case_attachments (
+              id BIGSERIAL PRIMARY KEY,
+              case_id TEXT NOT NULL,
+              author TEXT NOT NULL,
+              filename TEXT NOT NULL,
+              content_type TEXT NOT NULL,
+              payload TEXT NOT NULL,
+              created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            )
+            """
+        )
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_case_events_case_id ON case_events(case_id, created_at DESC)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_case_comments_case_id ON case_comments(case_id, created_at DESC)")
     yield
     await app.state.http_client.aclose()
     app.state.db.close()
@@ -434,6 +541,74 @@ async def graph_overview() -> Dict[str, Any]:
     )
 
 
+@app.post("/graph-intelligence/clusters/{cluster_id}/action")
+async def graph_cluster_action(cluster_id: str, body: ClusterActionInput) -> Dict[str, Any]:
+    out = await safe_post_json(f"{GRAPH_SERVICE_URL}/clusters/{cluster_id}/actions", body.model_dump(), None)
+    if out is None:
+        raise HTTPException(status_code=503, detail="graph service unavailable")
+    await safe_post_json(
+        f"{AUDIT_SERVICE_URL}/audits",
+        {"actor": "graph-ops", "action": f"cluster:{body.action}", "target": cluster_id},
+        {},
+    )
+    return out
+
+
+@app.post("/threat-entities/{entity_id}/freeze", response_model=ThreatEntityActionResponse)
+async def freeze_threat_entity(entity_id: str) -> ThreatEntityActionResponse:
+    out = await safe_post_json(f"{GRAPH_SERVICE_URL}/threat-entities/{entity_id}/freeze", {}, None)
+    if out is None:
+        raise HTTPException(status_code=503, detail="graph service unavailable")
+    ts = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    case_id = f"case_freeze_{entity_id}_{int(datetime.now(timezone.utc).timestamp())}"
+    await safe_post_json(
+        f"{AUDIT_SERVICE_URL}/cases/upsert",
+        {
+            "id": case_id,
+            "transaction_id": f"entity:{entity_id}",
+            "status": "open",
+            "severity": "critical",
+            "owner": "fraud-ops",
+            "updated_at": ts,
+        },
+        {},
+    )
+    await safe_post_json(
+        f"{AUDIT_SERVICE_URL}/audits",
+        {"actor": "fraud-ops", "action": "entity_freeze", "target": entity_id},
+        {},
+    )
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO case_events(case_id, actor, action, details, created_at) VALUES (%s,%s,%s,%s::jsonb,NOW())",
+            (case_id, "fraud-ops", "freeze", json.dumps({"entity_id": entity_id, "status": "frozen"})),
+        )
+    return ThreatEntityActionResponse(status="frozen", entity_id=entity_id, case_id=case_id, graph=out)
+
+
+@app.post("/threat-entities/{entity_id}/rollback", response_model=ThreatEntityActionResponse)
+async def rollback_threat_entity(entity_id: str) -> ThreatEntityActionResponse:
+    out = await safe_post_json(f"{GRAPH_SERVICE_URL}/threat-entities/{entity_id}/rollback", {}, None)
+    if out is None:
+        raise HTTPException(status_code=503, detail="graph service unavailable")
+    case_id = f"case_rollback_{entity_id}_{int(datetime.now(timezone.utc).timestamp())}"
+    await safe_post_json(
+        f"{AUDIT_SERVICE_URL}/audits",
+        {"actor": "fraud-ops", "action": "entity_rollback", "target": entity_id},
+        {},
+    )
+    return ThreatEntityActionResponse(status="rolled_back", entity_id=entity_id, case_id=case_id, graph=out)
+
+
+@app.get("/graph-intelligence/replay-path")
+async def graph_replay_path(seed: str = "demo_victim_01", limit: int = 20) -> Dict[str, Any]:
+    return await safe_get_json(
+        f"{GRAPH_SERVICE_URL}/replay-path?seed={seed}&limit={limit}",
+        {"steps": [], "total_amount": 0.0, "seed": seed},
+    )
+
+
 @app.get("/model-lab/overview")
 async def model_lab_overview() -> Dict[str, Any]:
     return await safe_get_json(
@@ -486,19 +661,162 @@ async def model_ops_retrain_now() -> Dict[str, Any]:
     return result
 
 
-@app.get("/cases-audit/list", response_model=ItemListResponse)
-async def cases_audit_list(status: Optional[str] = None, limit: int = 100, offset: int = 0) -> ItemListResponse:
+@app.get("/cases-audit/list", response_model=ItemEnvelopeResponse)
+async def cases_audit_list(status: Optional[str] = None, limit: int = 100, offset: int = 0) -> ItemEnvelopeResponse:
     url = f"{AUDIT_SERVICE_URL}/cases?limit={limit}&offset={offset}"
     if status is not None:
         url += f"&status={status}"
     out = await safe_get_json(url, {"items": []})
-    return ItemListResponse(items=out.get("items", []) if isinstance(out, dict) else [])
+    if not isinstance(out, dict):
+        return ItemEnvelopeResponse(items=[], total=0, limit=limit, offset=offset)
+    return ItemEnvelopeResponse(
+        items=out.get("items", []),
+        total=int(out.get("total", 0)),
+        limit=int(out.get("limit", limit)),
+        offset=int(out.get("offset", offset)),
+    )
 
 
-@app.get("/cases-audit/audits", response_model=ItemListResponse)
-async def cases_audit_audits(limit: int = 40, offset: int = 0) -> ItemListResponse:
+@app.get("/cases-audit/audits", response_model=ItemEnvelopeResponse)
+async def cases_audit_audits(limit: int = 40, offset: int = 0) -> ItemEnvelopeResponse:
     out = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits?limit={limit}&offset={offset}", {"items": []})
-    return ItemListResponse(items=out.get("items", []) if isinstance(out, dict) else [])
+    if not isinstance(out, dict):
+        return ItemEnvelopeResponse(items=[], total=0, limit=limit, offset=offset)
+    return ItemEnvelopeResponse(
+        items=out.get("items", []),
+        total=int(out.get("total", 0)),
+        limit=int(out.get("limit", limit)),
+        offset=int(out.get("offset", offset)),
+    )
+
+
+@app.post("/cases-audit/cases/{case_id}/actions")
+async def cases_audit_case_action(case_id: str, body: CaseActionInput) -> Dict[str, Any]:
+    if body.action == "freeze":
+        entity_id = case_id.replace("case_", "")
+        freeze_resp = await freeze_threat_entity(entity_id)
+        return {"status": "ok", "action": body.action, "freeze": freeze_resp.model_dump()}
+    if body.action == "close":
+        status_payload = {"status": "closed"}
+    elif body.action == "escalate":
+        status_payload = {"status": "escalated"}
+    elif body.action == "assign":
+        status_payload = {"status": "investigating"}
+    else:
+        status_payload = {"status": "investigating"}
+    try:
+        r = await app.state.http_client.patch(f"{AUDIT_SERVICE_URL}/cases/{case_id}/status", json=status_payload)
+        r.raise_for_status()
+    except Exception as exc:
+        logger.warning("case action failed: %s", exc)
+        raise HTTPException(status_code=503, detail="audit service unavailable")
+    await safe_post_json(
+        f"{AUDIT_SERVICE_URL}/audits",
+        {"actor": body.owner or "fraud-ops", "action": f"case_{body.action}", "target": case_id},
+        {},
+    )
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO case_events(case_id, actor, action, details, created_at) VALUES (%s,%s,%s,%s::jsonb,NOW())",
+            (case_id, body.owner or "fraud-ops", body.action, json.dumps({"reason": body.reason or ""})),
+        )
+    return {"status": "ok", "action": body.action, "case_id": case_id}
+
+
+@app.get("/cases-audit/cases/{case_id}/events")
+async def cases_audit_case_events(case_id: str) -> Dict[str, Any]:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id::text, actor, action, details, created_at FROM case_events WHERE case_id=%s ORDER BY created_at DESC LIMIT 200",
+            (case_id,),
+        )
+        rows = cur.fetchall()
+    return {"items": rows}
+
+
+@app.get("/cases-audit/cases/{case_id}/comments")
+async def cases_audit_case_comments(case_id: str) -> Dict[str, Any]:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id::text, author, message, created_at FROM case_comments WHERE case_id=%s ORDER BY created_at DESC LIMIT 200",
+            (case_id,),
+        )
+        rows = cur.fetchall()
+    return {"items": rows}
+
+
+@app.post("/cases-audit/cases/{case_id}/comments")
+async def cases_audit_add_comment(case_id: str, body: CaseCommentInput) -> Dict[str, Any]:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO case_comments(case_id, author, message, created_at) VALUES (%s,%s,%s,NOW()) RETURNING id::text, author, message, created_at",
+            (case_id, body.author, body.message),
+        )
+        row = cur.fetchone()
+        cur.execute(
+            "INSERT INTO case_events(case_id, actor, action, details, created_at) VALUES (%s,%s,%s,%s::jsonb,NOW())",
+            (case_id, body.author, "comment", json.dumps({"message": body.message})),
+        )
+    return {"status": "ok", "comment": row}
+
+
+@app.post("/cases-audit/cases/{case_id}/attachments")
+async def cases_audit_add_attachment(case_id: str, body: CaseAttachmentInput) -> Dict[str, Any]:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO case_attachments(case_id, author, filename, content_type, payload, created_at)
+            VALUES (%s,%s,%s,%s,%s,NOW())
+            RETURNING id::text, filename, content_type, created_at
+            """,
+            (case_id, body.author, body.filename, body.content_type, body.payload),
+        )
+        row = cur.fetchone()
+        cur.execute(
+            "INSERT INTO case_events(case_id, actor, action, details, created_at) VALUES (%s,%s,%s,%s::jsonb,NOW())",
+            (case_id, body.author, "attachment_upload", json.dumps({"filename": body.filename})),
+        )
+    return {"status": "ok", "attachment": row}
+
+
+@app.get("/cases-audit/queue/stream")
+async def cases_audit_queue_stream() -> Dict[str, Any]:
+    out = await safe_get_json(f"{AUDIT_SERVICE_URL}/cases?limit=200&offset=0", {"items": []})
+    items = out.get("items", []) if isinstance(out, dict) else []
+    priority = []
+    for idx, c in enumerate(items):
+        sev = str(c.get("severity", "low"))
+        weight = 4 if sev == "critical" else 3 if sev == "high" else 2 if sev == "medium" else 1
+        priority.append({"case_id": c.get("id"), "queue_priority_score": weight * 100 - idx})
+    return {"items": priority, "updated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+
+
+@app.get("/cases-audit/audits/export")
+async def cases_audit_export(format: str = Query(default="csv", pattern="^(csv|json)$")):
+    out = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits?limit=1000&offset=0", {"items": []})
+    items = out.get("items", []) if isinstance(out, dict) else []
+    if format == "json":
+        return JSONResponse(content={"items": items})
+    buff = io.StringIO()
+    writer = csv.DictWriter(buff, fieldnames=["id", "actor", "action", "target", "timestamp"])
+    writer.writeheader()
+    for row in items:
+        writer.writerow(
+            {
+                "id": row.get("id"),
+                "actor": row.get("actor"),
+                "action": row.get("action"),
+                "target": row.get("target"),
+                "timestamp": row.get("timestamp"),
+            }
+        )
+    buff.seek(0)
+    return StreamingResponse(buff, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=audit_export.csv"})
 
 
 @app.get("/rule-studio/rules", response_model=RuleStudioResponse)
@@ -506,7 +824,16 @@ async def rule_studio_rules() -> RuleStudioResponse:
     db: Connection = app.state.db
     with db.cursor() as cur:
         cur.execute(
-            "SELECT risk_threshold, velocity_limit, high_risk_channels FROM rules_config WHERE id=1"
+            """
+            SELECT
+              risk_threshold, velocity_limit, high_risk_channels,
+              balance_delta_org_threshold, balance_delta_dest_threshold, amount_log_threshold,
+              amount_to_org_balance_ratio_threshold, amount_to_dest_balance_ratio_threshold,
+              queue_risk_score_threshold, drift_alert_signal_threshold, mule_cluster_density_threshold,
+              repeated_beneficiary_anomaly_threshold, expression_mode, confidence_weight,
+              override_ml_score, shadow_mode, analyst_approval_required
+            FROM rules_config WHERE id=1
+            """
         )
         row = cur.fetchone()
     return RuleStudioResponse(rules=row if row else RuleSetInput().model_dump())
@@ -519,11 +846,51 @@ async def rule_studio_evaluate(rule_set: RuleSetInput) -> RuleEvalResponse:
         cur.execute(
             """
             UPDATE rules_config
-            SET risk_threshold=%s, velocity_limit=%s, high_risk_channels=%s::jsonb, updated_at=NOW()
+            SET risk_threshold=%s,
+                velocity_limit=%s,
+                high_risk_channels=%s::jsonb,
+                balance_delta_org_threshold=%s,
+                balance_delta_dest_threshold=%s,
+                amount_log_threshold=%s,
+                amount_to_org_balance_ratio_threshold=%s,
+                amount_to_dest_balance_ratio_threshold=%s,
+                queue_risk_score_threshold=%s,
+                drift_alert_signal_threshold=%s,
+                mule_cluster_density_threshold=%s,
+                repeated_beneficiary_anomaly_threshold=%s,
+                expression_mode=%s,
+                confidence_weight=%s,
+                override_ml_score=%s,
+                shadow_mode=%s,
+                analyst_approval_required=%s,
+                updated_at=NOW()
             WHERE id=1
             """,
-            (rule_set.risk_threshold, rule_set.velocity_limit, json.dumps(rule_set.high_risk_channels)),
+            (
+                rule_set.risk_threshold,
+                rule_set.velocity_limit,
+                json.dumps(rule_set.high_risk_channels),
+                rule_set.balance_delta_org_threshold,
+                rule_set.balance_delta_dest_threshold,
+                rule_set.amount_log_threshold,
+                rule_set.amount_to_org_balance_ratio_threshold,
+                rule_set.amount_to_dest_balance_ratio_threshold,
+                rule_set.queue_risk_score_threshold,
+                rule_set.drift_alert_signal_threshold,
+                rule_set.mule_cluster_density_threshold,
+                rule_set.repeated_beneficiary_anomaly_threshold,
+                rule_set.expression_mode,
+                rule_set.confidence_weight,
+                rule_set.override_ml_score,
+                rule_set.shadow_mode,
+                rule_set.analyst_approval_required,
+            ),
         )
+    await safe_post_json(
+        f"{AUDIT_SERVICE_URL}/audits",
+        {"actor": "rule-studio", "action": "rules_evaluate", "target": "rules_config_v2"},
+        {},
+    )
     return RuleEvalResponse(status="accepted", rules=rule_set.model_dump(), note="Persisted to PostgreSQL rules_config")
 
 

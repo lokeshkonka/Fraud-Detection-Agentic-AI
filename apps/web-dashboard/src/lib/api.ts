@@ -29,3 +29,10 @@ export async function apiPost<T>(base: string, path: string, body?: unknown): Pr
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
 }
+
+export async function apiPatch<T>(base: string, path: string, body?: unknown): Promise<T> {
+  return apiFetch<T>(base, path, {
+    method: 'PATCH',
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  })
+}
