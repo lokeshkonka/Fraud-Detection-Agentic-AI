@@ -1,0 +1,15 @@
+{
+  "rows_total": 80000,
+  "rows_train": 55212,
+  "rows_validation": 12049,
+  "rows_test": 12739,
+  "pct_train": 0.69015,
+  "pct_validation": 0.1506125,
+  "pct_test": 0.1592375,
+  "train_cut_step": 521.0,
+  "validation_cut_step": 634.0,
+  "burst_gap_steps": 24,
+  "bursts_train": 32885,
+  "bursts_validation": 7201,
+  "bursts_test": 7435
+}

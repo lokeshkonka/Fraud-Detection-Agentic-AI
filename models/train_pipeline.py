@@ -69,15 +69,53 @@ RNG_SEED = 42
 
 def synthesize_transactions(n_rows: int = SYNTHETIC_ROWS, fraud_ratio: float = FRAUD_RATIO, rng_seed: int = RNG_SEED) -> pd.DataFrame:
     rng = np.random.default_rng(rng_seed)
-    labels = rng.choice([0, 1], size=n_rows, p=[1 - fraud_ratio, fraud_ratio])
-    amount = rng.gamma(shape=2.0, scale=200.0, size=n_rows)
-    oldbalanceOrg = rng.normal(loc=5000, scale=1500, size=n_rows)
-    newbalanceOrig = oldbalanceOrg - amount * rng.uniform(0.8, 1.0, size=n_rows)
-    oldbalanceDest = rng.normal(loc=2000, scale=1000, size=n_rows)
-    newbalanceDest = oldbalanceDest + amount * rng.uniform(0.7, 1.0, size=n_rows)
-    tx_type = rng.choice(["PAYMENT", "TRANSFER", "CASH_OUT", "DEBIT"], size=n_rows)
+    labels = rng.choice([0, 1], size=n_rows, p=[1 - fraud_ratio, fraud_ratio]).astype(int)
+    is_fraud = labels == 1
+    step = rng.integers(1, 745, size=n_rows)
+
+    tx_type = np.empty(n_rows, dtype=object)
+    tx_type[~is_fraud] = rng.choice(
+        ["PAYMENT", "TRANSFER", "CASH_OUT", "DEBIT"],
+        size=(~is_fraud).sum(),
+        p=[0.56, 0.19, 0.16, 0.09],
+    )
+    tx_type[is_fraud] = rng.choice(
+        ["PAYMENT", "TRANSFER", "CASH_OUT", "DEBIT"],
+        size=is_fraud.sum(),
+        p=[0.02, 0.57, 0.38, 0.03],
+    )
+
+    amount = np.empty(n_rows)
+    amount[~is_fraud] = rng.gamma(shape=2.1, scale=180.0, size=(~is_fraud).sum())
+    amount[is_fraud] = rng.gamma(shape=5.4, scale=720.0, size=is_fraud.sum()) + rng.uniform(350, 1100, size=is_fraud.sum())
+    amount = np.clip(amount, a_min=1.0, a_max=None)
+
+    oldbalanceOrg = np.empty(n_rows)
+    oldbalanceOrg[~is_fraud] = rng.normal(loc=6200, scale=1700, size=(~is_fraud).sum())
+    oldbalanceOrg[is_fraud] = amount[is_fraud] * rng.uniform(0.85, 1.35, size=is_fraud.sum()) + rng.normal(280, 180, size=is_fraud.sum())
+    oldbalanceOrg = np.clip(oldbalanceOrg, a_min=80.0, a_max=None)
+
+    newbalanceOrig = np.empty(n_rows)
+    newbalanceOrig[~is_fraud] = oldbalanceOrg[~is_fraud] - amount[~is_fraud] * rng.uniform(0.70, 0.98, size=(~is_fraud).sum())
+    fraud_post = oldbalanceOrg[is_fraud] - amount[is_fraud] * rng.uniform(0.95, 1.08, size=is_fraud.sum())
+    drained = rng.random(is_fraud.sum()) < 0.72
+    fraud_post[drained] = rng.uniform(0.0, 15.0, size=drained.sum())
+    newbalanceOrig[is_fraud] = fraud_post
+    newbalanceOrig = np.clip(newbalanceOrig, a_min=0.0, a_max=None)
+
+    oldbalanceDest = np.empty(n_rows)
+    oldbalanceDest[~is_fraud] = rng.normal(loc=2400, scale=1100, size=(~is_fraud).sum())
+    oldbalanceDest[is_fraud] = rng.normal(loc=700, scale=430, size=is_fraud.sum())
+    oldbalanceDest = np.clip(oldbalanceDest, a_min=0.0, a_max=None)
+
+    newbalanceDest = np.empty(n_rows)
+    newbalanceDest[~is_fraud] = oldbalanceDest[~is_fraud] + amount[~is_fraud] * rng.uniform(0.65, 0.95, size=(~is_fraud).sum())
+    newbalanceDest[is_fraud] = oldbalanceDest[is_fraud] + amount[is_fraud] * rng.uniform(0.92, 1.16, size=is_fraud.sum())
+    newbalanceDest = np.clip(newbalanceDest, a_min=0.0, a_max=None)
+
     return pd.DataFrame(
         {
+            "step": step,
             "amount": amount,
             "oldbalanceOrg": oldbalanceOrg,
             "newbalanceOrig": newbalanceOrig,

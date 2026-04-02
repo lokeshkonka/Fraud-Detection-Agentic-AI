@@ -1,4 +1,10 @@
 """Training pipeline for fraud detection models."""
-from ml.training.pipeline import synthesize_transactions, load_dataset, train_models, run
 
-__all__ = ["synthesize_transactions", "load_dataset", "train_models", "run"]
+
+def run() -> None:
+	from ml.training.pipeline import run as _run
+
+	_run()
+
+
+__all__ = ["run"]
