@@ -111,7 +111,7 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
                 This will instantly demote the current champion and revert routing to the last known stable baseline:
               </p>
               <div className="rounded bg-zinc-900 border border-zinc-800 p-3 font-mono text-xs text-amber-300">
-                Fallback targeting: xgb_trained_external_v1
+                Fallback targeting: xgb.joblib
               </div>
               <p>
                 All active scoring operations will transition seamlessly. This action is immutable and logged to the global audit trail.

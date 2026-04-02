@@ -17,7 +17,7 @@ This plan is designed to be handed directly to an **AI coding agent**.
 Generated artifacts now available: - `accuracy_graph.png` -
 `dataset_analysis_graphs.png` - `dataset_boxplots.png` - `analysis.py`
 
-Source analysis script: `notebooks/train_pipeline.py`
+Source analysis script: `models/train_pipeline.py`
 
 These must become part of: 1. training workflow 2. model selection 3.
 drift baseline 4. UI explainability 5. weekly retraining

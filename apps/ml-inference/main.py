@@ -16,7 +16,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 logger = logging.getLogger(__name__)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:5432/fraud")
-MODEL_VERSION = os.getenv("MODEL_VERSION", "xgb_trained_external_v1")
+MODEL_VERSION = os.getenv("MODEL_VERSION", "xgb.joblib")
 CHALLENGER_VERSION = os.getenv("CHALLENGER_VERSION", "xgb_challenger_v3")
 
 ChannelType = Literal["card", "wire", "crypto", "ach", "upi"]

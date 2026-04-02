@@ -14,6 +14,6 @@ fi
 source "${VENV_DIR}/bin/activate"
 
 python -m pip install --upgrade pip
-python -m pip install -r notebooks/requirements-local-train.txt
+python -m pip install -r models/requirements-local-train.txt
 
-python notebooks/train_pipeline.py
+python models/train_pipeline.py

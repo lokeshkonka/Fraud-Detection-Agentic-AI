@@ -234,7 +234,7 @@ async def promote() -> PromoteResponse:
 
 @app.post("/model-ops/rollback", response_model=RollbackResponse)
 async def rollback() -> RollbackResponse:
-    champion = "xgb_trained_external_v1"
+    champion = "xgb.joblib"
     update_state(champion_version=champion)
     return RollbackResponse(status="rolled_back", champion_version=champion)
 

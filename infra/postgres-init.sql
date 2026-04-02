@@ -250,7 +250,7 @@ mean_shift_score = EXCLUDED.mean_shift_score,
 variance_shift_score = EXCLUDED.variance_shift_score;
 
 INSERT INTO scheduler_state(id, next_run, last_retrain, champion_version, challenger_version, drift_psi, drift_mean_shift, drift_variance_shift, threshold, policy, last_adjustment)
-VALUES (1, NOW() + INTERVAL '7 days', NOW() - INTERVAL '7 days', 'xgb_trained_external_v1', 'xgb_challenger_v3', 0.09, 0.07, 0.11, 0.55, 'dynamic-threshold-enabled', NOW() - INTERVAL '9 hours')
+VALUES (1, NOW() + INTERVAL '7 days', NOW() - INTERVAL '7 days', 'xgb.joblib', 'xgb_challenger_v3', 0.09, 0.07, 0.11, 0.55, 'dynamic-threshold-enabled', NOW() - INTERVAL '9 hours')
 ON CONFLICT (id) DO UPDATE SET
 next_run = EXCLUDED.next_run,
 last_retrain = EXCLUDED.last_retrain,
@@ -269,7 +269,7 @@ INSERT INTO retrain_history(id, started_at, completed_at, status, candidate_vers
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO artifacts(name, path, updated_at) VALUES
-('champion_model', 'models/xgb_fraud_v1.json', NOW()),
+('champion_model', 'models/xgb.joblib', NOW()),
 ('drift_baseline', 'artifacts/drift/drift_baseline.json', NOW()),
 ('accuracy_curve', 'artifacts/model_eval/xgb_accuracy_curve.png', NOW())
 ON CONFLICT (name) DO UPDATE SET

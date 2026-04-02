@@ -32,7 +32,7 @@ const API_CATALOG = [
   { method: 'GET',   path: '/model-ops/overview',              purpose: 'Champion/challenger details, retrain schedule countdown, drift metrics, adaptive learning, history, and artifacts.' },
   { method: 'POST',  path: '/model-ops/retrain-now',           purpose: 'Trigger an immediate challenger retrain cycle outside of the 7-day schedule.' },
   { method: 'POST',  path: '/model-ops/promote',               purpose: 'Promote the current challenger to champion. Audited and reflected in dashboard.' },
-  { method: 'POST',  path: '/model-ops/rollback',              purpose: 'Roll back to the baseline champion version (xgb_trained_external_v1).' },
+  { method: 'POST',  path: '/model-ops/rollback',              purpose: 'Roll back to the baseline champion version (xgb.joblib).' },
   { method: 'GET',   path: '/cases-audit/list',                purpose: 'Paginated fraud case list. Filter by status: open, investigating, escalated, closed.' },
   { method: 'GET',   path: '/cases-audit/audits',              purpose: 'Immutable audit log — all actor/action/target events from inference, ops, and case management.' },
   { method: 'GET',   path: '/rule-studio/rules',               purpose: 'Retrieve active rule configuration: risk_threshold, velocity_limit, high_risk_channels.' },
@@ -331,4 +331,3 @@ curl http://localhost:8000/health`}</pre>
     </div>
   )
 }
-
