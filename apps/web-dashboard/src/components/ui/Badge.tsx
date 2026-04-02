@@ -19,4 +19,3 @@ export function Badge({ value, label, size = 'sm' }: BadgeProps) {
     </span>
   )
 }
-

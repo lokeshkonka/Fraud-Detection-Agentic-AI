@@ -15,6 +15,7 @@ import { ModelLabPage } from './pages/ModelLabPage'
 import { ModelOpsPage } from './pages/ModelOpsPage'
 import { CasesAuditPage } from './pages/CasesAuditPage'
 import { RuleStudioPage } from './pages/RuleStudioPage'
+import { DocsPage } from './pages/DocsPage'
 import type { GatewayHealthResponse } from './types/api'
 
 const VALID_ROUTES: RouteKey[] = [
@@ -26,6 +27,7 @@ const VALID_ROUTES: RouteKey[] = [
   '/model-ops',
   '/cases-audit',
   '/rule-studio',
+  '/docs',
 ]
 
 function hashRoute(): RouteKey {
@@ -70,6 +72,7 @@ function App() {
       {route === '/model-ops'          && <ModelOpsPage          apiBase={apiBase} />}
       {route === '/cases-audit'        && <CasesAuditPage        apiBase={apiBase} />}
       {route === '/rule-studio'        && <RuleStudioPage        apiBase={apiBase} />}
+      {route === '/docs'               && <DocsPage              apiBase={apiBase} />}
     </AppShell>
   )
 }

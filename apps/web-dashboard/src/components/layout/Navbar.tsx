@@ -11,6 +11,7 @@ export type RouteKey =
   | '/model-ops'
   | '/cases-audit'
   | '/rule-studio'
+  | '/docs'
 
 interface NavItem {
   route: RouteKey
@@ -27,6 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { route: '/model-ops',          label: 'Model Ops',         icon: '⚙' },
   { route: '/cases-audit',        label: 'Cases & Audit',     icon: '⊟' },
   { route: '/rule-studio',        label: 'Rule Studio',       icon: '⊛' },
+  { route: '/docs',               label: 'Docs',              icon: '☰' },
 ]
 
 interface NavbarProps {
