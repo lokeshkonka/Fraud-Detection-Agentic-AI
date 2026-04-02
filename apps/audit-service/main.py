@@ -1,26 +1,20 @@
 import logging
+import os
 from datetime import datetime
 from typing import List, Literal, Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+from psycopg import Connection
+from psycopg.rows import dict_row
+from pydantic import BaseModel
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Type aliases / constrained types
-# ---------------------------------------------------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:5432/fraud")
 
 CaseStatus = Literal["open", "investigating", "closed", "escalated"]
 Severity = Literal["low", "medium", "high", "critical"]
-
-# ---------------------------------------------------------------------------
-# Domain models
-# ---------------------------------------------------------------------------
 
 
 class AuditRecord(BaseModel):
@@ -48,11 +42,6 @@ class AuditInput(BaseModel):
 
 class StatusUpdateBody(BaseModel):
     status: CaseStatus
-
-
-# ---------------------------------------------------------------------------
-# Response models
-# ---------------------------------------------------------------------------
 
 
 class HealthResponse(BaseModel):
@@ -85,145 +74,137 @@ class CaseUpsertResponse(BaseModel):
     case: CaseRecord
 
 
-# ---------------------------------------------------------------------------
-# In-memory store
-# ---------------------------------------------------------------------------
-
-_audits: List[AuditRecord] = [
-    AuditRecord(id="1", actor="system", action="score", target="txn_123", timestamp=datetime.utcnow()),
-    AuditRecord(id="2", actor="analyst", action="approve", target="case_456", timestamp=datetime.utcnow()),
-]
-
-_cases: List[CaseRecord] = [
-    CaseRecord(
-        id="case_001",
-        transaction_id="txn_123",
-        status="open",
-        severity="high",
-        owner="fraud-ops",
-        updated_at=datetime.utcnow(),
-    )
-]
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
-
-app = FastAPI(title="Audit Service", version="0.2.0")
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+app = FastAPI(title="Audit Service", version="0.3.0")
 
 
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    tags=["health"],
-    summary="Audit service liveness with current audit and case counts",
-)
+@app.on_event("startup")
+def startup() -> None:
+    app.state.db = Connection.connect(DATABASE_URL, autocommit=True, row_factory=dict_row)
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    db: Connection = app.state.db
+    db.close()
+
+
+@app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    return HealthResponse(status="ok", audits=len(_audits), cases=len(_cases))
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM audits")
+        a = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM cases")
+        c = int(cur.fetchone()["c"])
+    return HealthResponse(status="ok", audits=a, cases=c)
 
 
-@app.get(
-    "/audits",
-    response_model=AuditListResponse,
-    tags=["audits"],
-    summary="Paginated audit log: all actor-action-target records",
-)
+@app.get("/audits", response_model=AuditListResponse)
 async def audits(limit: int = 100, offset: int = 0) -> AuditListResponse:
+    db: Connection = app.state.db
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
-    total = len(_audits)
-    page = _audits[offset : offset + limit]
-    return AuditListResponse(items=page, total=total, limit=limit, offset=offset)
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM audits")
+        total = int(cur.fetchone()["c"])
+        cur.execute(
+            "SELECT id::text, actor, action, target, timestamp FROM audits ORDER BY timestamp DESC LIMIT %s OFFSET %s",
+            (limit, offset),
+        )
+        rows = cur.fetchall()
+    return AuditListResponse(items=[AuditRecord(**r) for r in rows], total=total, limit=limit, offset=offset)
 
 
-@app.post(
-    "/audits",
-    response_model=AuditAddResponse,
-    tags=["audits"],
-    summary="Append a new audit log entry",
-)
+@app.post("/audits", response_model=AuditAddResponse)
 async def add_audit(payload: AuditInput) -> AuditAddResponse:
-    record = AuditRecord(
-        id=str(len(_audits) + 1),
-        actor=payload.actor,
-        action=payload.action,
-        target=payload.target,
-        timestamp=datetime.utcnow(),
-    )
-    _audits.insert(0, record)
-    del _audits[200:]
-    logger.info("audit recorded: actor=%s action=%s target=%s", payload.actor, payload.action, payload.target)
-    return AuditAddResponse(status="recorded", audit=record)
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "INSERT INTO audits(actor, action, target, timestamp) VALUES (%s,%s,%s,NOW()) RETURNING id::text, actor, action, target, timestamp",
+            (payload.actor, payload.action, payload.target),
+        )
+        row = cur.fetchone()
+    logger.info("audit recorded actor=%s action=%s target=%s", payload.actor, payload.action, payload.target)
+    return AuditAddResponse(status="recorded", audit=AuditRecord(**row))
 
 
-@app.get(
-    "/cases",
-    response_model=CaseListResponse,
-    tags=["cases"],
-    summary="Paginated case list with optional status filter",
-)
-async def cases(
-    status: Optional[CaseStatus] = None,
-    limit: int = 100,
-    offset: int = 0,
-) -> CaseListResponse:
+@app.get("/cases", response_model=CaseListResponse)
+async def cases(status: Optional[CaseStatus] = None, limit: int = 100, offset: int = 0) -> CaseListResponse:
+    db: Connection = app.state.db
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
-    filtered = [c for c in _cases if status is None or c.status == status]
-    total = len(filtered)
-    page = filtered[offset : offset + limit]
-    return CaseListResponse(items=page, total=total, limit=limit, offset=offset)
+    with db.cursor() as cur:
+        if status is None:
+            cur.execute("SELECT COUNT(*) AS c FROM cases")
+            total = int(cur.fetchone()["c"])
+            cur.execute(
+                "SELECT id, transaction_id, status, severity, owner, updated_at FROM cases ORDER BY updated_at DESC LIMIT %s OFFSET %s",
+                (limit, offset),
+            )
+        else:
+            cur.execute("SELECT COUNT(*) AS c FROM cases WHERE status=%s", (status,))
+            total = int(cur.fetchone()["c"])
+            cur.execute(
+                "SELECT id, transaction_id, status, severity, owner, updated_at FROM cases WHERE status=%s ORDER BY updated_at DESC LIMIT %s OFFSET %s",
+                (status, limit, offset),
+            )
+        rows = cur.fetchall()
+    return CaseListResponse(items=[CaseRecord(**r) for r in rows], total=total, limit=limit, offset=offset)
 
 
-@app.get(
-    "/cases/{case_id}",
-    response_model=CaseRecord,
-    tags=["cases"],
-    summary="Retrieve a single fraud case by ID",
-)
+@app.get("/cases/{case_id}", response_model=CaseRecord)
 async def get_case(case_id: str) -> CaseRecord:
-    found = next((c for c in _cases if c.id == case_id), None)
-    if found is None:
-        raise HTTPException(status_code=404, detail=f"Case {case_id!r} not found")
-    return found
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT id, transaction_id, status, severity, owner, updated_at FROM cases WHERE id=%s", (case_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Case {case_id!r} not found")
+    return CaseRecord(**row)
 
 
-@app.patch(
-    "/cases/{case_id}/status",
-    response_model=CaseRecord,
-    tags=["cases"],
-    summary="Update the status of a fraud case (open → investigating → escalated → closed)",
-)
+@app.patch("/cases/{case_id}/status", response_model=CaseRecord)
 async def update_case_status(case_id: str, body: StatusUpdateBody) -> CaseRecord:
-    found = next((c for c in _cases if c.id == case_id), None)
-    if found is None:
-        raise HTTPException(status_code=404, detail=f"Case {case_id!r} not found")
-    found.status = body.status
-    found.updated_at = datetime.utcnow()
-    logger.info("case %s status updated to %s", case_id, body.status)
-    return found
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "UPDATE cases SET status=%s, updated_at=NOW() WHERE id=%s RETURNING id, transaction_id, status, severity, owner, updated_at",
+            (body.status, case_id),
+        )
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail=f"Case {case_id!r} not found")
+    logger.info("case %s status updated=%s", case_id, body.status)
+    return CaseRecord(**row)
 
 
-@app.post(
-    "/cases/upsert",
-    response_model=CaseUpsertResponse,
-    tags=["cases"],
-    summary="Insert or update a fraud case record",
-)
+@app.post("/cases/upsert", response_model=CaseUpsertResponse)
 async def upsert_case(payload: CaseRecord) -> CaseUpsertResponse:
-    found_idx = next((idx for idx, item in enumerate(_cases) if item.id == payload.id), None)
-    if found_idx is None:
-        _cases.insert(0, payload)
-        logger.info("case created: %s severity=%s", payload.id, payload.severity)
-    else:
-        _cases[found_idx] = payload
-        logger.info("case updated: %s status=%s", payload.id, payload.status)
-    del _cases[100:]
-    return CaseUpsertResponse(status="ok", case=payload)
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO cases(id, transaction_id, status, severity, owner, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO UPDATE SET
+              transaction_id=EXCLUDED.transaction_id,
+              status=EXCLUDED.status,
+              severity=EXCLUDED.severity,
+              owner=EXCLUDED.owner,
+              updated_at=EXCLUDED.updated_at
+            RETURNING id, transaction_id, status, severity, owner, updated_at
+            """,
+            (
+                payload.id,
+                payload.transaction_id,
+                payload.status,
+                payload.severity,
+                payload.owner,
+                payload.updated_at,
+            ),
+        )
+        row = cur.fetchone()
+    return CaseUpsertResponse(status="ok", case=CaseRecord(**row))
 
 
 if __name__ == "__main__":

@@ -1,31 +1,23 @@
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+import os
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional
 
 from fastapi import FastAPI
+from psycopg import Connection
+from psycopg.rows import dict_row
 from pydantic import BaseModel, ConfigDict
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-RUN_INTERVAL_SECONDS = 7 * 24 * 60 * 60
-
-# ---------------------------------------------------------------------------
-# Domain models
-# ---------------------------------------------------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:5432/fraud")
+RUN_INTERVAL_SECONDS = int(os.getenv("RUN_INTERVAL_SECONDS", str(7 * 24 * 60 * 60)))
 
 
 class RetrainHistoryItem(BaseModel):
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat() + "Z"})
-
     id: str
     started_at: datetime
     completed_at: datetime
@@ -37,28 +29,18 @@ class RetrainHistoryItem(BaseModel):
 
 class ArtifactItem(BaseModel):
     model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat() + "Z"})
-
     name: str
     path: str
     updated_at: datetime
 
 
-# ---------------------------------------------------------------------------
-# Response models
-# ---------------------------------------------------------------------------
-
-
 class HealthResponse(BaseModel):
-    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat() + "Z"})
-
     status: str
     next_run: Optional[datetime] = None
     last_retrain: Optional[datetime] = None
 
 
 class ScheduleInfo(BaseModel):
-    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat() + "Z"})
-
     interval_days: int
     next_retrain_at: datetime
     last_retrain_at: Optional[datetime] = None
@@ -79,16 +61,12 @@ class ModelVersionInfo(BaseModel):
 
 
 class AdaptiveLearningInfo(BaseModel):
-    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat() + "Z"})
-
     threshold: float
     policy: str
     last_adjustment: datetime
 
 
 class ModelOpsOverviewResponse(BaseModel):
-    model_config = ConfigDict(json_encoders={datetime: lambda v: v.isoformat() + "Z"})
-
     schedule: ScheduleInfo
     drift: DriftInfo
     champion: ModelVersionInfo
@@ -121,237 +99,210 @@ class ArtifactsResponse(BaseModel):
     items: List[ArtifactItem]
 
 
-# ---------------------------------------------------------------------------
-# In-memory state
-# ---------------------------------------------------------------------------
-
-_next_run: Optional[datetime] = None
-_last_retrain_at: Optional[datetime] = None
-_last_shadow_candidate = "xgb_challenger_v3"
-_champion_version = "xgb_trained_external_v1"
-_challenger_version = "xgb_challenger_v3"
-
-_drift_state: DriftInfo = DriftInfo(psi=0.09, mean_shift=0.07, variance_shift=0.11)
-
-_artifacts: List[ArtifactItem] = [
-    ArtifactItem(
-        name="champion_model",
-        path="models/xgb_fraud_v1.json",
-        updated_at=datetime.utcnow(),
-    ),
-    ArtifactItem(
-        name="drift_baseline",
-        path="artifacts/drift/drift_baseline.json",
-        updated_at=datetime.utcnow(),
-    ),
-    ArtifactItem(
-        name="accuracy_curve",
-        path="artifacts/model_eval/xgb_accuracy_curve.png",
-        updated_at=datetime.utcnow(),
-    ),
-]
-
-_history: List[RetrainHistoryItem] = [
-    RetrainHistoryItem(
-        id="run-001",
-        started_at=datetime.utcnow() - timedelta(days=14),
-        completed_at=datetime.utcnow() - timedelta(days=14) + timedelta(minutes=6),
-        status="completed",
-        candidate_version="xgb_challenger_v2",
-        challenger_pr_auc=0.831,
-        promoted=False,
-    ),
-    RetrainHistoryItem(
-        id="run-002",
-        started_at=datetime.utcnow() - timedelta(days=7),
-        completed_at=datetime.utcnow() - timedelta(days=7) + timedelta(minutes=5),
-        status="completed",
-        candidate_version="xgb_challenger_v3",
-        challenger_pr_auc=0.848,
-        promoted=False,
-    ),
-]
-
-# ---------------------------------------------------------------------------
-# Retrain logic
-# ---------------------------------------------------------------------------
-
-
-async def retrain_job() -> None:
-    global _next_run, _last_retrain_at, _challenger_version, _last_shadow_candidate, _drift_state
-
-    started = datetime.utcnow()
-    logger.info("retrain job started at %s", started.isoformat())
-    await asyncio.sleep(0.05)
-
-    candidate = f"xgb_challenger_shadow_{started.strftime('%Y%m%d')}"
-    _challenger_version = candidate
-    _last_shadow_candidate = candidate
-
-    _drift_state = DriftInfo(
-        psi=round(max(0.02, min(0.25, _drift_state.psi * 0.96)), 3),
-        mean_shift=round(max(0.02, min(0.20, _drift_state.mean_shift * 0.95)), 3),
-        variance_shift=round(max(0.03, min(0.25, _drift_state.variance_shift * 0.95)), 3),
-    )
-
-    completed = datetime.utcnow()
-    _last_retrain_at = completed
-    _next_run = completed + timedelta(seconds=RUN_INTERVAL_SECONDS)
-
-    _history.insert(
-        0,
-        RetrainHistoryItem(
-            id=f"run-{started.strftime('%Y%m%d%H%M%S')}",
-            started_at=started,
-            completed_at=completed,
-            status="completed",
-            candidate_version=candidate,
-            challenger_pr_auc=0.852,
-            promoted=False,
-        ),
-    )
-    del _history[10:]
-    logger.info("retrain job completed; challenger=%s", candidate)
-
-
-async def scheduler_loop() -> None:
-    global _next_run
-    _next_run = datetime.utcnow()
-    while True:
-        await retrain_job()
-        await asyncio.sleep(RUN_INTERVAL_SECONDS)
-
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
-
-app = FastAPI(title="ML Retrain Scheduler", version="0.2.0")
+app = FastAPI(title="ML Retrain Scheduler", version="0.3.0")
 
 
 @app.on_event("startup")
-async def start_scheduler() -> None:
+async def startup() -> None:
+    app.state.db = Connection.connect(DATABASE_URL, autocommit=True, row_factory=dict_row)
     asyncio.create_task(scheduler_loop())
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+@app.on_event("shutdown")
+def shutdown() -> None:
+    db: Connection = app.state.db
+    db.close()
 
 
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    tags=["health"],
-    summary="Scheduler liveness, next scheduled run, and last retrain timestamp",
-)
-async def health() -> HealthResponse:
-    return HealthResponse(
-        status="ok",
-        next_run=_next_run,
-        last_retrain=_last_retrain_at,
+def db() -> Connection:
+    return app.state.db
+
+
+def now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def get_state() -> dict:
+    with db().cursor() as cur:
+        cur.execute(
+            """
+            SELECT next_run,last_retrain,champion_version,challenger_version,
+                   drift_psi,drift_mean_shift,drift_variance_shift,
+                   threshold,policy,last_adjustment
+            FROM scheduler_state WHERE id=1
+            """
+        )
+        row = cur.fetchone()
+        if not row:
+            raise RuntimeError("scheduler_state missing")
+        return row
+
+
+def update_state(**fields) -> None:
+    sets = []
+    vals = []
+    for k, v in fields.items():
+        sets.append(f"{k}=%s")
+        vals.append(v)
+    vals.append(1)
+    with db().cursor() as cur:
+        cur.execute(f"UPDATE scheduler_state SET {', '.join(sets)} WHERE id=%s", vals)
+
+
+def get_metric(name: str) -> float:
+    with db().cursor() as cur:
+        if name == "champion":
+            cur.execute("SELECT champion_pr_auc AS v FROM model_metrics WHERE id=1")
+        else:
+            cur.execute("SELECT challenger_pr_auc AS v FROM model_metrics WHERE id=1")
+        return float(cur.fetchone()["v"])
+
+
+async def retrain_job() -> None:
+    started = now_utc()
+    candidate = f"xgb_challenger_shadow_{started.strftime('%Y%m%d')}"
+
+    state = get_state()
+    drift_psi = round(max(0.02, min(0.25, float(state["drift_psi"]) * 0.96)), 3)
+    drift_mean = round(max(0.02, min(0.20, float(state["drift_mean_shift"]) * 0.95)), 3)
+    drift_var = round(max(0.03, min(0.25, float(state["drift_variance_shift"]) * 0.95)), 3)
+
+    completed = now_utc()
+    next_run = completed + timedelta(seconds=RUN_INTERVAL_SECONDS)
+    update_state(
+        challenger_version=candidate,
+        last_retrain=completed,
+        next_run=next_run,
+        drift_psi=drift_psi,
+        drift_mean_shift=drift_mean,
+        drift_variance_shift=drift_var,
     )
 
+    with db().cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO retrain_history(id, started_at, completed_at, status, candidate_version, challenger_pr_auc, promoted)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (
+                f"run-{started.strftime('%Y%m%d%H%M%S')}",
+                started,
+                completed,
+                "completed",
+                candidate,
+                0.852,
+                False,
+            ),
+        )
+    logger.info("retrain completed challenger=%s", candidate)
 
-@app.post(
-    "/model-ops/retrain-now",
-    response_model=RetrainResponse,
-    tags=["model-ops"],
-    summary="Trigger an immediate out-of-schedule retrain cycle",
-)
+
+async def scheduler_loop() -> None:
+    while True:
+        s = get_state()
+        nr = s["next_run"] or now_utc()
+        now = now_utc()
+        wait = max(0, int((nr - now).total_seconds()))
+        if wait > 0:
+            await asyncio.sleep(min(wait, 60))
+            continue
+        await retrain_job()
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    s = get_state()
+    return HealthResponse(status="ok", next_run=s["next_run"], last_retrain=s["last_retrain"])
+
+
+@app.post("/model-ops/retrain-now", response_model=RetrainResponse)
 async def retrain_now() -> RetrainResponse:
-    logger.info("manual retrain triggered")
     await retrain_job()
-    return RetrainResponse(status="completed", challenger_version=_challenger_version)
+    return RetrainResponse(status="completed", challenger_version=get_state()["challenger_version"])
 
 
-@app.post(
-    "/model-ops/promote",
-    response_model=PromoteResponse,
-    tags=["model-ops"],
-    summary="Promote the shadow challenger to production champion",
-)
+@app.post("/model-ops/promote", response_model=PromoteResponse)
 async def promote() -> PromoteResponse:
-    global _champion_version
-    _champion_version = _challenger_version
-    if _history:
-        _history[0].promoted = True
-    logger.info("model promoted: %s", _champion_version)
-    return PromoteResponse(status="promoted", champion_version=_champion_version)
+    s = get_state()
+    champion = s["challenger_version"]
+    update_state(champion_version=champion)
+    with db().cursor() as cur:
+        cur.execute("UPDATE retrain_history SET promoted=TRUE WHERE id=(SELECT id FROM retrain_history ORDER BY completed_at DESC LIMIT 1)")
+    return PromoteResponse(status="promoted", champion_version=champion)
 
 
-@app.post(
-    "/model-ops/rollback",
-    response_model=RollbackResponse,
-    tags=["model-ops"],
-    summary="Roll back champion to the stable baseline version",
-)
+@app.post("/model-ops/rollback", response_model=RollbackResponse)
 async def rollback() -> RollbackResponse:
-    global _champion_version
-    _champion_version = "xgb_trained_external_v1"
-    logger.info("model rolled back to %s", _champion_version)
-    return RollbackResponse(status="rolled_back", champion_version=_champion_version)
+    champion = "xgb_trained_external_v1"
+    update_state(champion_version=champion)
+    return RollbackResponse(status="rolled_back", champion_version=champion)
 
 
-@app.get(
-    "/model-ops/overview",
-    response_model=ModelOpsOverviewResponse,
-    tags=["model-ops"],
-    summary="Full model-ops overview: schedule, drift, champion/challenger, artifacts, history",
-)
+@app.get("/model-ops/overview", response_model=ModelOpsOverviewResponse)
 async def model_ops_overview() -> ModelOpsOverviewResponse:
-    now = datetime.utcnow()
-    next_run = _next_run or now + timedelta(seconds=RUN_INTERVAL_SECONDS)
-    countdown_sec = int(max(0, (next_run - now).total_seconds()))
+    s = get_state()
+    now = now_utc()
+    next_run = s["next_run"] or (now + timedelta(seconds=RUN_INTERVAL_SECONDS))
+    countdown = int(max(0, (next_run - now).total_seconds()))
+
+    with db().cursor() as cur:
+        cur.execute("SELECT name, path, updated_at FROM artifacts ORDER BY name")
+        artifacts = [ArtifactItem(**r) for r in cur.fetchall()]
+
+        cur.execute(
+            """
+            SELECT id, started_at, completed_at, status, candidate_version, challenger_pr_auc, promoted
+            FROM retrain_history ORDER BY completed_at DESC LIMIT 10
+            """
+        )
+        history = [RetrainHistoryItem(**r) for r in cur.fetchall()]
 
     return ModelOpsOverviewResponse(
         schedule=ScheduleInfo(
             interval_days=7,
             next_retrain_at=next_run,
-            last_retrain_at=_last_retrain_at,
-            countdown_seconds=countdown_sec,
+            last_retrain_at=s["last_retrain"],
+            countdown_seconds=countdown,
         ),
-        drift=_drift_state,
-        champion=ModelVersionInfo(
-            version=_champion_version,
-            pr_auc=0.842,
-            status="active",
+        drift=DriftInfo(
+            psi=float(s["drift_psi"]),
+            mean_shift=float(s["drift_mean_shift"]),
+            variance_shift=float(s["drift_variance_shift"]),
         ),
-        challenger=ModelVersionInfo(
-            version=_challenger_version,
-            pr_auc=0.852,
-            status="shadow",
-            source=_last_shadow_candidate,
-        ),
+        champion=ModelVersionInfo(version=s["champion_version"], pr_auc=get_metric("champion"), status="active"),
+        challenger=ModelVersionInfo(version=s["challenger_version"], pr_auc=get_metric("challenger"), status="shadow", source=s["challenger_version"]),
         adaptive_learning=AdaptiveLearningInfo(
-            threshold=0.55,
-            policy="dynamic-threshold-enabled",
-            last_adjustment=now - timedelta(hours=9),
+            threshold=float(s["threshold"]),
+            policy=s["policy"],
+            last_adjustment=s["last_adjustment"],
         ),
-        artifacts=_artifacts,
-        history=_history,
+        artifacts=artifacts,
+        history=history,
     )
 
 
-@app.get(
-    "/history",
-    response_model=HistoryResponse,
-    tags=["model-ops"],
-    summary="Paginated retrain history records",
-)
+@app.get("/history", response_model=HistoryResponse)
 async def retrain_history(limit: int = 10) -> HistoryResponse:
     limit = max(1, min(limit, 100))
-    return HistoryResponse(items=_history[:limit])
+    with db().cursor() as cur:
+        cur.execute(
+            """
+            SELECT id, started_at, completed_at, status, candidate_version, challenger_pr_auc, promoted
+            FROM retrain_history ORDER BY completed_at DESC LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+    return HistoryResponse(items=[RetrainHistoryItem(**r) for r in rows])
 
 
-@app.get(
-    "/artifacts",
-    response_model=ArtifactsResponse,
-    tags=["model-ops"],
-    summary="List persisted model and evaluation artifacts",
-)
+@app.get("/artifacts", response_model=ArtifactsResponse)
 async def retrain_artifacts() -> ArtifactsResponse:
-    return ArtifactsResponse(items=_artifacts)
+    with db().cursor() as cur:
+        cur.execute("SELECT name, path, updated_at FROM artifacts ORDER BY name")
+        rows = cur.fetchall()
+    return ArtifactsResponse(items=[ArtifactItem(**r) for r in rows])
 
 
 if __name__ == "__main__":

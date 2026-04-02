@@ -7,6 +7,8 @@ services:
       - "3000:3000"
     depends_on:
       - api-gateway
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
 
   api-gateway:
     build: ./apps/api-gateway
@@ -14,33 +16,66 @@ services:
       - "8000:8000"
     environment:
       ML_INFERENCE_URL: http://ml-inference:8500
+      ML_RETRAIN_SCHEDULER_URL: http://ml-retrain-scheduler:8700
+      SIMULATION_ENGINE_URL: http://simulation-engine:8600
+      GRAPH_SERVICE_URL: http://graph-service:8900
+      AUDIT_SERVICE_URL: http://audit-service:8800
+      DATABASE_URL: postgresql://fraud:fraud@postgres:5432/fraud
     depends_on:
+      - postgres
       - ml-inference
+      - ml-retrain-scheduler
+      - simulation-engine
+      - graph-service
+      - audit-service
 
   ml-inference:
     build: ./apps/ml-inference
     ports:
       - "8500:8500"
+    environment:
+      DATABASE_URL: postgresql://fraud:fraud@postgres:5432/fraud
+      MODEL_VERSION: xgb_trained_external_v1
+      CHALLENGER_VERSION: xgb_challenger_v3
+    depends_on:
+      - postgres
 
   simulation-engine:
     build: ./apps/simulation-engine
     ports:
       - "8600:8600"
+    environment:
+      DATABASE_URL: postgresql://fraud:fraud@postgres:5432/fraud
+    depends_on:
+      - postgres
 
   ml-retrain-scheduler:
     build: ./apps/ml-retrain-scheduler
     ports:
       - "8700:8700"
+    environment:
+      DATABASE_URL: postgresql://fraud:fraud@postgres:5432/fraud
+      RUN_INTERVAL_SECONDS: "604800"
+    depends_on:
+      - postgres
 
   audit-service:
     build: ./apps/audit-service
     ports:
       - "8800:8800"
+    environment:
+      DATABASE_URL: postgresql://fraud:fraud@postgres:5432/fraud
+    depends_on:
+      - postgres
 
   graph-service:
     build: ./apps/graph-service
     ports:
       - "8900:8900"
+    environment:
+      DATABASE_URL: postgresql://fraud:fraud@postgres:5432/fraud
+    depends_on:
+      - postgres
 
   kafka:
     image: bitnami/kafka:3.6
@@ -71,6 +106,7 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres-init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
 
   neo4j:
     image: neo4j:5

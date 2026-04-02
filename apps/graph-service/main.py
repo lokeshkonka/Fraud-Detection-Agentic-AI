@@ -1,47 +1,33 @@
 import logging
-from typing import Dict, List, Literal
+import os
+from typing import List
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
+from psycopg import Connection
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Type aliases
-# ---------------------------------------------------------------------------
-
-NodeType = Literal["account", "merchant", "device", "ip"]
-RelationType = Literal["transfer", "refund", "payment", "shared_device"]
-
-# ---------------------------------------------------------------------------
-# Domain models
-# ---------------------------------------------------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:5432/fraud")
 
 
 class GraphNode(BaseModel):
     id: str
-    label: str  # NodeType — kept as str to allow sync from external events gracefully
+    label: str
     risk: float = Field(..., ge=0.0, le=1.0)
 
 
 class GraphEdge(BaseModel):
     source: str
     target: str
-    relation: str  # RelationType — kept as str for same reason as above
+    relation: str
     amount: float = Field(..., ge=0.0)
 
 
 class SyncPayload(BaseModel):
     events: List[dict]
-
-
-# ---------------------------------------------------------------------------
-# Response models
-# ---------------------------------------------------------------------------
 
 
 class HealthResponse(BaseModel):
@@ -74,137 +60,127 @@ class SyncResponse(BaseModel):
     total_edges: int
 
 
-# ---------------------------------------------------------------------------
-# In-memory graph store
-# ---------------------------------------------------------------------------
-
-_nodes: Dict[str, GraphNode] = {
-    "acct_1": GraphNode(id="acct_1", label="account", risk=0.12),
-    "acct_2": GraphNode(id="acct_2", label="account", risk=0.72),
-}
-_edges: List[GraphEdge] = [
-    GraphEdge(source="acct_1", target="acct_2", relation="transfer", amount=245.0),
-    GraphEdge(source="acct_2", target="acct_1", relation="refund", amount=85.0),
-]
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
-
-app = FastAPI(title="Graph Service", version="0.2.0")
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+app = FastAPI(title="Graph Service", version="0.3.0")
 
 
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    tags=["health"],
-    summary="Graph service liveness with current node and edge counts",
-)
+@app.on_event("startup")
+def startup() -> None:
+    app.state.db = Connection.connect(DATABASE_URL, autocommit=True, row_factory=dict_row)
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    db: Connection = app.state.db
+    db.close()
+
+
+@app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    return HealthResponse(status="ok", nodes=len(_nodes), edges=len(_edges))
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM graph_nodes")
+        n = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM graph_edges")
+        e = int(cur.fetchone()["c"])
+    return HealthResponse(status="ok", nodes=n, edges=e)
 
 
-@app.get(
-    "/nodes",
-    response_model=List[GraphNode],
-    tags=["graph"],
-    summary="Retrieve graph nodes filtered by minimum risk score, with limit",
-)
+@app.get("/nodes", response_model=List[GraphNode])
 async def nodes(limit: int = 100, min_risk: float = 0.0) -> List[GraphNode]:
+    db: Connection = app.state.db
     limit = max(1, min(limit, 5000))
     min_risk = max(0.0, min(min_risk, 1.0))
-    filtered = [n for n in _nodes.values() if n.risk >= min_risk]
-    return filtered[:limit]
-
-
-@app.get(
-    "/edges",
-    response_model=List[GraphEdge],
-    tags=["graph"],
-    summary="Retrieve graph edges with limit",
-)
-async def edges(limit: int = 200) -> List[GraphEdge]:
-    limit = max(1, min(limit, 10000))
-    return _edges[:limit]
-
-
-@app.post(
-    "/sync-events",
-    response_model=SyncResponse,
-    tags=["graph"],
-    summary="Ingest simulation or live events into the graph store",
-)
-async def sync_events(payload: SyncPayload) -> SyncResponse:
-    added_edges = 0
-    for event in payload.events[:200]:
-        user_id = str(event.get("user_id", "unknown_user"))
-        merchant = str(event.get("merchant", "unknown_merchant"))
-        amount = float(event.get("amount", 0.0))
-        label = str(event.get("label", "legit"))
-
-        if user_id not in _nodes:
-            _nodes[user_id] = GraphNode(id=user_id, label="account", risk=0.15)
-        merchant_node_id = f"merchant_{merchant}"
-        if merchant_node_id not in _nodes:
-            _nodes[merchant_node_id] = GraphNode(id=merchant_node_id, label="merchant", risk=0.05)
-
-        if label == "fraud":
-            _nodes[user_id].risk = round(min(0.99, _nodes[user_id].risk + 0.12), 4)
-
-        _edges.append(
-            GraphEdge(source=user_id, target=merchant_node_id, relation="payment", amount=amount)
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT id, label, risk FROM graph_nodes WHERE risk >= %s ORDER BY risk DESC LIMIT %s",
+            (min_risk, limit),
         )
-        added_edges += 1
-
-    if len(_edges) > 1000:
-        del _edges[:-1000]
-
-    logger.info(
-        "sync-events: added_edges=%d total_nodes=%d total_edges=%d",
-        added_edges,
-        len(_nodes),
-        len(_edges),
-    )
-    return SyncResponse(
-        status="synced",
-        added_edges=added_edges,
-        total_nodes=len(_nodes),
-        total_edges=len(_edges),
-    )
+        rows = cur.fetchall()
+    return [GraphNode(**r) for r in rows]
 
 
-@app.get(
-    "/overview",
-    response_model=GraphOverviewResponse,
-    tags=["graph"],
-    summary="High-level graph statistics: node/edge counts and risk signals",
-)
+@app.get("/edges", response_model=List[GraphEdge])
+async def edges(limit: int = 200) -> List[GraphEdge]:
+    db: Connection = app.state.db
+    limit = max(1, min(limit, 10000))
+    with db.cursor() as cur:
+        cur.execute("SELECT source, target, relation, amount FROM graph_edges ORDER BY id DESC LIMIT %s", (limit,))
+        rows = cur.fetchall()
+    return [GraphEdge(**r) for r in rows]
+
+
+@app.post("/sync-events", response_model=SyncResponse)
+async def sync_events(payload: SyncPayload) -> SyncResponse:
+    db: Connection = app.state.db
+    added_edges = 0
+    with db.cursor() as cur:
+        for event in payload.events[:200]:
+            user_id = str(event.get("user_id", "unknown_user"))
+            merchant = str(event.get("merchant", "unknown_merchant"))
+            amount = float(event.get("amount", 0.0))
+            label = str(event.get("label", "legit"))
+            merchant_node_id = f"merchant_{merchant}"
+
+            cur.execute(
+                """
+                INSERT INTO graph_nodes(id, label, risk)
+                VALUES (%s,'account',%s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (user_id, 0.15),
+            )
+            cur.execute(
+                """
+                INSERT INTO graph_nodes(id, label, risk)
+                VALUES (%s,'merchant',%s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (merchant_node_id, 0.05),
+            )
+            if label == "fraud":
+                cur.execute("UPDATE graph_nodes SET risk = LEAST(0.99, risk + 0.12) WHERE id=%s", (user_id,))
+
+            cur.execute(
+                "INSERT INTO graph_edges(source, target, relation, amount) VALUES (%s,%s,'payment',%s)",
+                (user_id, merchant_node_id, amount),
+            )
+            added_edges += 1
+
+        cur.execute("DELETE FROM graph_edges WHERE id IN (SELECT id FROM graph_edges ORDER BY id DESC OFFSET 1000)")
+
+        cur.execute("SELECT COUNT(*) AS c FROM graph_nodes")
+        total_nodes = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM graph_edges")
+        total_edges = int(cur.fetchone()["c"])
+
+    logger.info("sync-events: added_edges=%d total_nodes=%d total_edges=%d", added_edges, total_nodes, total_edges)
+    return SyncResponse(status="synced", added_edges=added_edges, total_nodes=total_nodes, total_edges=total_edges)
+
+
+@app.get("/overview", response_model=GraphOverviewResponse)
 async def overview() -> GraphOverviewResponse:
-    high_risk = len([n for n in _nodes.values() if n.risk >= 0.7])
-    return GraphOverviewResponse(
-        nodes=len(_nodes),
-        edges=len(_edges),
-        high_risk_nodes=high_risk,
-        mule_ring_signals=max(1, high_risk // 2),
-    )
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM graph_nodes")
+        n = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM graph_edges")
+        e = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM graph_nodes WHERE risk >= 0.7")
+        high_risk = int(cur.fetchone()["c"])
+    return GraphOverviewResponse(nodes=n, edges=e, high_risk_nodes=high_risk, mule_ring_signals=max(1, high_risk // 2))
 
 
-@app.get(
-    "/rings",
-    response_model=RingsResponse,
-    tags=["graph"],
-    summary="Detected mule-ring clusters formed from high-risk nodes",
-)
+@app.get("/rings", response_model=RingsResponse)
 async def rings() -> RingsResponse:
-    risky_nodes = [n.id for n in _nodes.values() if n.risk >= 0.7][:8]
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT id FROM graph_nodes WHERE risk >= 0.7 ORDER BY risk DESC LIMIT 8")
+        risky_nodes = [r["id"] for r in cur.fetchall()]
+
     return RingsResponse(
         rings=[
-            RingInfo(id="ring-a", members=risky_nodes[:4], risk=0.88),
-            RingInfo(id="ring-b", members=risky_nodes[4:8], risk=0.79),
+            RingInfo(id="ring-a", members=risky_nodes[:4], risk=0.88 if risky_nodes[:4] else 0.0),
+            RingInfo(id="ring-b", members=risky_nodes[4:8], risk=0.79 if risky_nodes[4:8] else 0.0),
         ]
     )
 

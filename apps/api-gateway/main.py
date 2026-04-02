@@ -1,34 +1,27 @@
+import json
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import httpx
+from psycopg import Connection
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
 
 ML_INFERENCE_URL = os.getenv("ML_INFERENCE_URL", "http://localhost:8500").rstrip("/")
 ML_RETRAIN_SCHEDULER_URL = os.getenv("ML_RETRAIN_SCHEDULER_URL", "http://localhost:8700").rstrip("/")
 SIMULATION_ENGINE_URL = os.getenv("SIMULATION_ENGINE_URL", "http://localhost:8600").rstrip("/")
 GRAPH_SERVICE_URL = os.getenv("GRAPH_SERVICE_URL", "http://localhost:8900").rstrip("/")
 AUDIT_SERVICE_URL = os.getenv("AUDIT_SERVICE_URL", "http://localhost:8800").rstrip("/")
-REQUEST_TIMEOUT_SEC = float(os.getenv("REQUEST_TIMEOUT_SEC", "3"))
-
-# ---------------------------------------------------------------------------
-# Request / shared models
-# ---------------------------------------------------------------------------
+REQUEST_TIMEOUT_SEC = float(os.getenv("REQUEST_TIMEOUT_SEC", "5"))
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:5432/fraud")
 
 
 class Transaction(BaseModel):
@@ -48,17 +41,10 @@ class RuleSetInput(BaseModel):
 
 
 class SimRunConfig(BaseModel):
-    """Typed simulation run configuration forwarded to the simulation engine."""
-
     count: int = Field(default=20, ge=1, le=500)
     start_seconds_ago: int = Field(default=300, ge=0, le=86400)
     max_amount: float = Field(default=3000.0, gt=0, le=1_000_000)
     fraud_ratio: float = Field(default=0.12, ge=0.0, le=1.0)
-
-
-# ---------------------------------------------------------------------------
-# Response models
-# ---------------------------------------------------------------------------
 
 
 class ServiceUrls(BaseModel):
@@ -152,27 +138,16 @@ class ItemListResponse(BaseModel):
     items: List[Any]
 
 
-# ---------------------------------------------------------------------------
-# Lifespan
-# ---------------------------------------------------------------------------
-
-
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # type: ignore[override]
-    logger.info("API Gateway starting; connecting to downstream services")
+async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SEC)
-    app.state.recent_transactions: List[Dict[str, Any]] = []
-    app.state.last_simulation: Dict[str, Any] = {
-        "events": [],
-        "summary": {"generated": 0, "fraud": 0, "legit": 0},
-    }
-    app.state.rule_set = RuleSetInput()
+    app.state.db = Connection.connect(DATABASE_URL, autocommit=True, row_factory=dict_row)
     yield
     await app.state.http_client.aclose()
-    logger.info("API Gateway shutdown complete")
+    app.state.db.close()
 
 
-app = FastAPI(title="Fraud API Gateway", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="Fraud API Gateway", version="0.3.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -182,16 +157,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
 
 async def safe_get_json(url: str, fallback: Any) -> Any:
     try:
-        resp = await app.state.http_client.get(url)
-        resp.raise_for_status()
-        return resp.json()
+        r = await app.state.http_client.get(url)
+        r.raise_for_status()
+        return r.json()
     except Exception as exc:
         logger.warning("GET %s failed: %s", url, exc)
         return fallback
@@ -199,16 +170,15 @@ async def safe_get_json(url: str, fallback: Any) -> Any:
 
 async def safe_post_json(url: str, payload: dict, fallback: Any) -> Any:
     try:
-        resp = await app.state.http_client.post(url, json=payload)
-        resp.raise_for_status()
-        return resp.json()
+        r = await app.state.http_client.post(url, json=payload)
+        r.raise_for_status()
+        return r.json()
     except Exception as exc:
         logger.warning("POST %s failed: %s", url, exc)
         return fallback
 
 
 def decision_band(label: str, score: float) -> str:
-    """Map score bands to actions: fraud >=0.85 freeze, fraud >=0.65 hold, lower fraud step-up, non-fraud approve."""
     if label == "fraud" and score >= 0.85:
         return "freeze"
     if label == "fraud" and score >= 0.65:
@@ -218,17 +188,26 @@ def decision_band(label: str, score: float) -> str:
     return "approve"
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+def tx_rows(page: int, limit: int) -> tuple[list[dict], int]:
+    db: Connection = app.state.db
+    offset = (page - 1) * limit
+    with db.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM transactions")
+        total = int(cur.fetchone()["c"])
+        cur.execute(
+            """
+            SELECT transaction_id,user_id,amount,channel,score,label,decision,reasons,rule_score,model_score,timestamp
+            FROM transactions
+            ORDER BY timestamp DESC
+            LIMIT %s OFFSET %s
+            """,
+            (limit, offset),
+        )
+        rows = cur.fetchall()
+    return rows, total
 
 
-@app.get(
-    "/health",
-    response_model=GatewayHealthResponse,
-    tags=["health"],
-    summary="Aggregate health of all downstream services",
-)
+@app.get("/health", response_model=GatewayHealthResponse)
 async def health() -> GatewayHealthResponse:
     inference = await safe_get_json(f"{ML_INFERENCE_URL}/health", {"status": "degraded"})
     scheduler = await safe_get_json(f"{ML_RETRAIN_SCHEDULER_URL}/health", {"status": "degraded"})
@@ -253,22 +232,12 @@ async def health() -> GatewayHealthResponse:
     )
 
 
-@app.get(
-    "/routes",
-    response_model=RoutesResponse,
-    tags=["health"],
-    summary="List all registered API routes",
-)
+@app.get("/routes", response_model=RoutesResponse)
 async def routes() -> RoutesResponse:
     return RoutesResponse(routes=[r.path for r in app.routes])
 
 
-@app.post(
-    "/score",
-    response_model=ScoreResponse,
-    tags=["scoring"],
-    summary="Score a transaction and return a fraud decision",
-)
+@app.post("/score", response_model=ScoreResponse)
 async def score(tx: Transaction) -> ScoreResponse:
     payload = tx.model_dump(mode="json")
     result = await safe_post_json(f"{ML_INFERENCE_URL}/score", payload, None)
@@ -278,7 +247,7 @@ async def score(tx: Transaction) -> ScoreResponse:
     score_val = float(result.get("score", 0.0))
     label = str(result.get("label", "legit"))
     decision = decision_band(label, score_val)
-    ts = datetime.utcnow().isoformat() + "Z"
+    ts = (tx.timestamp or datetime.now(timezone.utc)).isoformat().replace("+00:00", "Z")
 
     enriched: Dict[str, Any] = {
         "transaction_id": tx.transaction_id,
@@ -289,21 +258,10 @@ async def score(tx: Transaction) -> ScoreResponse:
         "label": label,
         "decision": decision,
         "reasons": result.get("reasons") or ["baseline"],
-        "rule_score": result.get("rule_score", 0),
-        "model_score": result.get("model_score", 0),
+        "rule_score": float(result.get("rule_score", 0.0)),
+        "model_score": float(result.get("model_score", 0.0)),
         "timestamp": ts,
     }
-
-    app.state.recent_transactions.insert(0, enriched)
-    del app.state.recent_transactions[150:]
-
-    logger.info(
-        "scored tx=%s label=%s score=%.4f decision=%s",
-        tx.transaction_id,
-        label,
-        score_val,
-        decision,
-    )
 
     await safe_post_json(
         f"{AUDIT_SERVICE_URL}/audits",
@@ -312,50 +270,67 @@ async def score(tx: Transaction) -> ScoreResponse:
     )
 
     if decision in {"hold", "freeze"}:
-        case_payload = {
-            "id": f"case_{tx.transaction_id}",
-            "transaction_id": tx.transaction_id,
-            "status": "open",
-            "severity": "critical" if decision == "freeze" else "high",
-            "owner": "fraud-ops",
-            "updated_at": ts,
-        }
-        await safe_post_json(f"{AUDIT_SERVICE_URL}/cases/upsert", case_payload, {})
+        await safe_post_json(
+            f"{AUDIT_SERVICE_URL}/cases/upsert",
+            {
+                "id": f"case_{tx.transaction_id}",
+                "transaction_id": tx.transaction_id,
+                "status": "open",
+                "severity": "critical" if decision == "freeze" else "high",
+                "owner": "fraud-ops",
+                "updated_at": ts,
+            },
+            {},
+        )
 
     return ScoreResponse(**enriched)
 
 
-@app.get(
-    "/dashboard/overview",
-    response_model=DashboardResponse,
-    tags=["dashboard"],
-    summary="Aggregated KPIs, decision counts, graph overview, and model-ops status",
-)
+@app.get("/dashboard/overview", response_model=DashboardResponse)
 async def dashboard_overview() -> DashboardResponse:
-    recent = app.state.recent_transactions[:30]
-    fraud = len([item for item in recent if item["label"] == "fraud"])
-    tx_count = len(recent)
-    decision_counts: Dict[str, int] = {}
-    for item in recent:
-        decision_counts[item["decision"]] = decision_counts.get(item["decision"], 0) + 1
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT COUNT(*) AS tx_count,
+                   COALESCE(AVG(CASE WHEN label='fraud' THEN 1.0 ELSE 0.0 END),0) AS fraud_rate,
+                   COALESCE(AVG(score),0) AS avg_score
+            FROM transactions
+            WHERE timestamp >= NOW() - INTERVAL '24 hours'
+            """
+        )
+        row = cur.fetchone()
+        tx_count = int(row["tx_count"])
+        fraud_rate = float(row["fraud_rate"])
+        avg_score = float(row["avg_score"])
+
+        cur.execute(
+            """
+            SELECT decision, COUNT(*) AS c
+            FROM transactions
+            WHERE timestamp >= NOW() - INTERVAL '24 hours'
+            GROUP BY decision
+            """
+        )
+        drows = cur.fetchall()
+
+    decision_counts = {r["decision"]: int(r["c"]) for r in drows}
 
     graph_data = await safe_get_json(
         f"{GRAPH_SERVICE_URL}/overview",
         {"nodes": 0, "edges": 0, "high_risk_nodes": 0, "mule_ring_signals": 0},
     )
     model_ops = await safe_get_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/overview", {})
-    open_cases_raw = await safe_get_json(f"{AUDIT_SERVICE_URL}/cases", [])
-    open_cases_count = len(open_cases_raw) if isinstance(open_cases_raw, list) else 0
-
-    kpis = DashboardKpis(
-        transactions_seen=tx_count,
-        fraud_rate=round((fraud / tx_count), 4) if tx_count else 0.0,
-        avg_score=round(sum(item["score"] for item in recent) / tx_count, 4) if tx_count else 0.0,
-        open_cases=open_cases_count,
-    )
+    open_cases_raw = await safe_get_json(f"{AUDIT_SERVICE_URL}/cases", {"items": []})
+    open_cases_count = len(open_cases_raw.get("items", [])) if isinstance(open_cases_raw, dict) else 0
 
     return DashboardResponse(
-        kpis=kpis,
+        kpis=DashboardKpis(
+            transactions_seen=tx_count,
+            fraud_rate=round(fraud_rate, 4),
+            avg_score=round(avg_score, 4),
+            open_cases=open_cases_count,
+        ),
         decision_counts=decision_counts,
         graph=graph_data,
         model_ops=DashboardModelOps(
@@ -366,88 +341,60 @@ async def dashboard_overview() -> DashboardResponse:
     )
 
 
-@app.get(
-    "/transaction-flow/recent",
-    response_model=TransactionFlowResponse,
-    tags=["transaction-flow"],
-    summary="Paginated recent transaction feed with fraud decisions",
-)
+@app.get("/transaction-flow/recent", response_model=TransactionFlowResponse)
 async def transaction_flow_recent(page: int = 1, limit: int = 50) -> TransactionFlowResponse:
     page = max(1, page)
     limit = max(1, min(limit, 200))
-    start = (page - 1) * limit
-    end = start + limit
-    total = len(app.state.recent_transactions)
-    raw_items = app.state.recent_transactions[start:end]
-    items = [TransactionRecord(**item) for item in raw_items]
+    rows, total = tx_rows(page, limit)
+    items = [
+        TransactionRecord(
+            transaction_id=r["transaction_id"],
+            user_id=r["user_id"],
+            amount=float(r["amount"]),
+            channel=r["channel"],
+            score=float(r["score"]),
+            label=r["label"],
+            decision=r["decision"],
+            reasons=r["reasons"] if isinstance(r["reasons"], list) else json.loads(r["reasons"]),
+            rule_score=float(r["rule_score"]),
+            model_score=float(r["model_score"]),
+            timestamp=r["timestamp"].isoformat().replace("+00:00", "Z") if r["timestamp"] else None,
+        )
+        for r in rows
+    ]
     return TransactionFlowResponse(items=items, page=page, limit=limit, total=total)
 
 
-@app.post(
-    "/simulation/run",
-    tags=["simulation"],
-    summary="Run a fraud simulation scenario and seed the graph and transaction feed",
-)
+@app.post("/simulation/run")
 async def simulation_run(cfg: SimRunConfig) -> Dict[str, Any]:
-    result = await safe_post_json(
-        f"{SIMULATION_ENGINE_URL}/simulate", cfg.model_dump(), None
-    )
+    result = await safe_post_json(f"{SIMULATION_ENGINE_URL}/simulate", cfg.model_dump(), None)
     if result is None:
         raise HTTPException(status_code=503, detail="simulation engine unavailable")
 
     events = result.get("events", [])
-    app.state.last_simulation = result
-    logger.info("simulation completed: %d events", len(events))
-
     await safe_post_json(f"{GRAPH_SERVICE_URL}/sync-events", {"events": events}, {})
 
-    for event in events[:80]:
-        label = event.get("label", "legit")
-        amount = float(event.get("amount", 0))
-        if label == "fraud":
-            score = min(0.96, 0.72 + (amount / 50000) * 0.2)
-            rule_score = 0.65
-            model_score = 0.75
-        else:
-            score = min(0.35, 0.08 + (amount / 80000) * 0.15)
-            rule_score = 0.12
-            model_score = 0.09
-        decision = decision_band(label, score)
-        app.state.recent_transactions.insert(
-            0,
-            {
-                "transaction_id": event.get("transaction_id"),
-                "user_id": event.get("user_id"),
-                "amount": amount,
-                "channel": event.get("channel", "card"),
-                "score": round(score, 4),
-                "label": label,
-                "decision": decision,
-                "reasons": [event.get("archetype", "simulation")],
-                "rule_score": rule_score,
-                "model_score": model_score,
-                "timestamp": event.get("timestamp"),
-            },
-        )
+    for event in events[:200]:
+        tx = {
+            "transaction_id": event.get("transaction_id"),
+            "user_id": event.get("user_id"),
+            "amount": event.get("amount", 0),
+            "merchant": event.get("merchant"),
+            "channel": event.get("channel", "card"),
+            "timestamp": event.get("timestamp"),
+            "features": {"velocity": 5 if event.get("label") == "fraud" else 1},
+        }
+        await safe_post_json(f"{ML_INFERENCE_URL}/score", tx, {})
 
-    del app.state.recent_transactions[150:]
     return result
 
 
-@app.get(
-    "/simulation/last-run",
-    tags=["simulation"],
-    summary="Return the most recent simulation result",
-)
+@app.get("/simulation/last-run")
 async def simulation_last_run() -> Dict[str, Any]:
-    return app.state.last_simulation
+    return await safe_get_json(f"{SIMULATION_ENGINE_URL}/simulate/last", {})
 
 
-@app.get(
-    "/graph-intelligence/network",
-    tags=["graph-intelligence"],
-    summary="Full graph network: nodes, edges, and ring clusters",
-)
+@app.get("/graph-intelligence/network")
 async def graph_network() -> Dict[str, Any]:
     nodes = await safe_get_json(f"{GRAPH_SERVICE_URL}/nodes", [])
     edges = await safe_get_json(f"{GRAPH_SERVICE_URL}/edges", [])
@@ -455,23 +402,15 @@ async def graph_network() -> Dict[str, Any]:
     return {"nodes": nodes, "edges": edges, "rings": rings.get("rings", [])}
 
 
-@app.get(
-    "/graph-intelligence/overview",
-    tags=["graph-intelligence"],
-    summary="High-level graph statistics and mule-ring signal count",
-)
+@app.get("/graph-intelligence/overview")
 async def graph_overview() -> Dict[str, Any]:
     return await safe_get_json(
         f"{GRAPH_SERVICE_URL}/overview",
-        {"nodes": 0, "edges": 0, "high_risk_nodes": 0},
+        {"nodes": 0, "edges": 0, "high_risk_nodes": 0, "mule_ring_signals": 0},
     )
 
 
-@app.get(
-    "/model-lab/overview",
-    tags=["model-lab"],
-    summary="Champion vs challenger metrics, feature stats, accuracy curve, and drift baseline",
-)
+@app.get("/model-lab/overview")
 async def model_lab_overview() -> Dict[str, Any]:
     return await safe_get_json(
         f"{ML_INFERENCE_URL}/model-lab/overview",
@@ -479,25 +418,16 @@ async def model_lab_overview() -> Dict[str, Any]:
     )
 
 
-@app.get(
-    "/model-ops/overview",
-    tags=["model-ops"],
-    summary="Model-ops overview: schedule, drift, champion/challenger, artifacts, history",
-)
+@app.get("/model-ops/overview")
 async def model_ops_overview() -> Dict[str, Any]:
     return await safe_get_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/overview", {})
 
 
-@app.post(
-    "/model-ops/promote",
-    tags=["model-ops"],
-    summary="Promote the current challenger to champion",
-)
+@app.post("/model-ops/promote")
 async def model_ops_promote() -> Dict[str, Any]:
     promoted = await safe_post_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/promote", {}, None)
     if promoted is None:
         raise HTTPException(status_code=503, detail="scheduler unavailable")
-    logger.info("model promoted: %s", promoted.get("champion_version"))
     await safe_post_json(
         f"{AUDIT_SERVICE_URL}/audits",
         {"actor": "ml-ops", "action": "promote", "target": promoted.get("champion_version", "unknown")},
@@ -506,16 +436,11 @@ async def model_ops_promote() -> Dict[str, Any]:
     return promoted
 
 
-@app.post(
-    "/model-ops/rollback",
-    tags=["model-ops"],
-    summary="Roll back champion to the previous stable version",
-)
+@app.post("/model-ops/rollback")
 async def model_ops_rollback() -> Dict[str, Any]:
     rollback = await safe_post_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/rollback", {}, None)
     if rollback is None:
         raise HTTPException(status_code=503, detail="scheduler unavailable")
-    logger.info("model rolled back: %s", rollback.get("champion_version"))
     await safe_post_json(
         f"{AUDIT_SERVICE_URL}/audits",
         {"actor": "ml-ops", "action": "rollback", "target": rollback.get("champion_version", "unknown")},
@@ -524,16 +449,11 @@ async def model_ops_rollback() -> Dict[str, Any]:
     return rollback
 
 
-@app.post(
-    "/model-ops/retrain-now",
-    tags=["model-ops"],
-    summary="Trigger an immediate out-of-schedule retrain cycle",
-)
+@app.post("/model-ops/retrain-now")
 async def model_ops_retrain_now() -> Dict[str, Any]:
     result = await safe_post_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/retrain-now", {}, None)
     if result is None:
         raise HTTPException(status_code=503, detail="scheduler unavailable")
-    logger.info("retrain triggered: challenger=%s", result.get("challenger_version"))
     await safe_post_json(
         f"{AUDIT_SERVICE_URL}/audits",
         {"actor": "ml-ops", "action": "retrain_now", "target": result.get("challenger_version", "unknown")},
@@ -542,95 +462,67 @@ async def model_ops_retrain_now() -> Dict[str, Any]:
     return result
 
 
-@app.get(
-    "/cases-audit/list",
-    response_model=ItemListResponse,
-    tags=["cases-audit"],
-    summary="List fraud cases with optional status filter and pagination",
-)
-async def cases_audit_list(
-    status: Optional[str] = None,
-    limit: int = 100,
-    offset: int = 0,
-) -> ItemListResponse:
+@app.get("/cases-audit/list", response_model=ItemListResponse)
+async def cases_audit_list(status: Optional[str] = None, limit: int = 100, offset: int = 0) -> ItemListResponse:
     url = f"{AUDIT_SERVICE_URL}/cases?limit={limit}&offset={offset}"
     if status is not None:
         url += f"&status={status}"
-    items = await safe_get_json(url, [])
-    return ItemListResponse(items=items if isinstance(items, list) else [])
+    out = await safe_get_json(url, {"items": []})
+    return ItemListResponse(items=out.get("items", []) if isinstance(out, dict) else [])
 
 
-@app.get(
-    "/cases-audit/audits",
-    response_model=ItemListResponse,
-    tags=["cases-audit"],
-    summary="List recent audit log entries from the audit service with pagination",
-)
+@app.get("/cases-audit/audits", response_model=ItemListResponse)
 async def cases_audit_audits(limit: int = 40, offset: int = 0) -> ItemListResponse:
-    items = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits?limit={limit}&offset={offset}", [])
-    return ItemListResponse(items=items if isinstance(items, list) else [])
+    out = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits?limit={limit}&offset={offset}", {"items": []})
+    return ItemListResponse(items=out.get("items", []) if isinstance(out, dict) else [])
 
 
-@app.get(
-    "/rule-studio/rules",
-    response_model=RuleStudioResponse,
-    tags=["rule-studio"],
-    summary="Return the current in-memory rule set",
-)
+@app.get("/rule-studio/rules", response_model=RuleStudioResponse)
 async def rule_studio_rules() -> RuleStudioResponse:
-    return RuleStudioResponse(rules=app.state.rule_set.model_dump())
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            "SELECT risk_threshold, velocity_limit, high_risk_channels FROM rules_config WHERE id=1"
+        )
+        row = cur.fetchone()
+    return RuleStudioResponse(rules=row if row else RuleSetInput().model_dump())
 
 
-@app.post(
-    "/rule-studio/rules/evaluate",
-    response_model=RuleEvalResponse,
-    tags=["rule-studio"],
-    summary="Update and evaluate a candidate rule set (simulation-only; does not mutate production)",
-)
+@app.post("/rule-studio/rules/evaluate", response_model=RuleEvalResponse)
 async def rule_studio_evaluate(rule_set: RuleSetInput) -> RuleEvalResponse:
-    app.state.rule_set = rule_set
-    logger.info("rule set updated: threshold=%.2f", rule_set.risk_threshold)
-    return RuleEvalResponse(
-        status="accepted",
-        rules=rule_set.model_dump(),
-        note="Simulation-only rule tuning; production rules are not mutated in this demo",
-    )
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE rules_config
+            SET risk_threshold=%s, velocity_limit=%s, high_risk_channels=%s::jsonb, updated_at=NOW()
+            WHERE id=1
+            """,
+            (rule_set.risk_threshold, rule_set.velocity_limit, json.dumps(rule_set.high_risk_channels)),
+        )
+    return RuleEvalResponse(status="accepted", rules=rule_set.model_dump(), note="Persisted to PostgreSQL rules_config")
 
 
-@app.post(
-    "/explain",
-    tags=["inference"],
-    summary="SHAP-like per-feature score contributions for a transaction",
-)
+@app.post("/explain")
 async def explain(tx: Transaction) -> Dict[str, Any]:
-    logger.info("explain tx=%s", tx.transaction_id)
-    payload = tx.model_dump(mode="json")
-    result = await safe_post_json(f"{ML_INFERENCE_URL}/explain", payload, None)
+    result = await safe_post_json(f"{ML_INFERENCE_URL}/explain", tx.model_dump(mode="json"), None)
     if result is None:
         raise HTTPException(status_code=503, detail="ml-inference unavailable")
-    return result  # type: ignore[return-value]
+    return result
 
 
-@app.post(
-    "/batch-score",
-    tags=["inference"],
-    summary="Batch score up to 200 transactions; proxied to ml-inference",
-)
+@app.post("/batch-score")
 async def batch_score(body: List[Dict[str, Any]]) -> Dict[str, Any]:
     try:
-        resp = await app.state.http_client.post(f"{ML_INFERENCE_URL}/batch-score", json=body)
-        resp.raise_for_status()
-        return resp.json()  # type: ignore[return-value]
+        r = await app.state.http_client.post(f"{ML_INFERENCE_URL}/batch-score", json=body)
+        r.raise_for_status()
+        return r.json()
     except Exception as exc:
         logger.warning("batch-score proxy failed: %s", exc)
         raise HTTPException(status_code=503, detail="ml-inference unavailable")
 
 
-@app.get(
-    "/simulation/archetypes/detail",
-    tags=["simulation"],
-    summary="Detailed descriptions and risk levels for every fraud archetype",
-)
+@app.get("/simulation/archetypes/detail")
 async def simulation_archetypes_detail() -> Dict[str, Any]:
     result = await safe_get_json(f"{SIMULATION_ENGINE_URL}/archetypes/detail", [])
     return {"archetypes": result}

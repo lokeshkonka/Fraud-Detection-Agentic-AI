@@ -1,21 +1,19 @@
 import logging
+import os
 import random
 import string
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, List
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from psycopg import Connection
+from psycopg.rows import dict_row
 from pydantic import BaseModel, Field
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s %(name)s %(message)s",
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Domain models
-# ---------------------------------------------------------------------------
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:5432/fraud")
 
 
 class SimConfig(BaseModel):
@@ -64,217 +62,152 @@ class HealthResponse(BaseModel):
     archetypes: List[str]
 
 
-class LastRunResponse(BaseModel):
-    events: List[Dict]
-    summary: SimSummary
-    generated_at: str
+app = FastAPI(title="Simulation Engine", version="0.3.0")
 
-
-# ---------------------------------------------------------------------------
-# Static data
-# ---------------------------------------------------------------------------
-
-FRAUD_ARCHETYPES = [
-    "mule_ring",
-    "account_takeover",
-    "friendly_fraud",
-    "cross_border_smurfing",
-    "merchant_collusion",
-    "synthetic_identity",
-    "velocity_burst",
-]
-
-ARCHETYPE_METADATA: List[ArchetypeInfo] = [
-    ArchetypeInfo(
-        id="mule_ring",
-        description=(
-            "High-risk account network forwarding illicit funds across multiple hops "
-            "to obscure the beneficial owner before cash-out."
-        ),
-        risk_level="critical",
-    ),
-    ArchetypeInfo(
-        id="account_takeover",
-        description=(
-            "Credential-based compromise enabling an attacker to initiate unauthorised "
-            "fund transfers from a legitimate account holder's profile."
-        ),
-        risk_level="high",
-    ),
-    ArchetypeInfo(
-        id="friendly_fraud",
-        description=(
-            "A cardholder disputes a legitimate transaction as unauthorised to obtain "
-            "a chargeback while retaining goods or services."
-        ),
-        risk_level="medium",
-    ),
-    ArchetypeInfo(
-        id="cross_border_smurfing",
-        description=(
-            "Structured below-threshold transfers split across multiple jurisdictions "
-            "to evade AML monitoring and currency reporting obligations."
-        ),
-        risk_level="high",
-    ),
-    ArchetypeInfo(
-        id="merchant_collusion",
-        description=(
-            "Coordinated refund inflation or fictitious charge manipulation executed "
-            "in concert with a complicit merchant terminal."
-        ),
-        risk_level="high",
-    ),
-    ArchetypeInfo(
-        id="synthetic_identity",
-        description=(
-            "Fraudulent identity constructed by combining real personally identifiable "
-            "information with fabricated data to pass KYC checks."
-        ),
-        risk_level="critical",
-    ),
-    ArchetypeInfo(
-        id="velocity_burst",
-        description=(
-            "Rapid sequential transaction bursts designed to exhaust an account balance "
-            "or credit line before fraud controls detect and block the pattern."
-        ),
-        risk_level="high",
-    ),
-]
-
-CHANNELS = ["card", "wire", "crypto", "ach", "upi"]
-MERCHANTS = ["groceries", "travel", "electronics", "fashion", "gaming", "wallet_topup"]
-
-# ---------------------------------------------------------------------------
-# App
-# ---------------------------------------------------------------------------
-
-app = FastAPI(title="Simulation Engine", version="0.2.0")
-
-_last_run: Dict = {
+EMPTY_LAST_RUN = {
     "events": [],
     "summary": {"generated": 0, "fraud": 0, "legit": 0, "fraud_ratio": 0.0},
-    "generated_at": datetime.utcnow().isoformat() + "Z",
 }
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+
+@app.on_event("startup")
+def startup() -> None:
+    app.state.db = Connection.connect(DATABASE_URL, autocommit=True, row_factory=dict_row)
+
+
+@app.on_event("shutdown")
+def shutdown() -> None:
+    db: Connection = app.state.db
+    db.close()
 
 
 def _id(prefix: str = "txn") -> str:
-    suffix = "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
-    return f"{prefix}_{suffix}"
+    return f"{prefix}_" + "".join(random.choices(string.ascii_lowercase + string.digits, k=10))
 
 
-def _archetype(is_fraud: bool) -> str:
-    if not is_fraud:
-        return "normal_behavior"
-    return random.choice(FRAUD_ARCHETYPES)
+def load_catalog(table: str, col: str) -> List[str]:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(f"SELECT {col} FROM {table} ORDER BY {col}")
+        return [r[col] for r in cur.fetchall()]
 
 
-def _event(now: datetime, max_amount: float, is_fraud: bool) -> SimEvent:
-    channel = random.choice(CHANNELS)
+def _event(now: datetime, max_amount: float, is_fraud: bool, channels: List[str], merchants: List[str], archetypes: List[str]) -> SimEvent:
+    if not channels or not merchants:
+        raise HTTPException(status_code=500, detail="catalog tables not seeded")
+
+    channel = random.choice(channels)
+    merchant = random.choice(merchants)
     amount = round(random.uniform(5, max_amount), 2)
 
     if is_fraud:
-        channel = random.choice(["wire", "crypto", "upi"])
+        high_risk = [c for c in channels if c in {"wire", "crypto", "upi"}] or channels
+        channel = random.choice(high_risk)
         amount = round(random.uniform(max_amount * 0.45, max_amount), 2)
 
     return SimEvent(
         transaction_id=_id(),
         user_id=_id("user"),
         amount=amount,
-        merchant=random.choice(MERCHANTS),
+        merchant=merchant,
         channel=channel,
         timestamp=now - timedelta(seconds=random.randint(0, 300)),
         label="fraud" if is_fraud else "legit",
-        archetype=_archetype(is_fraud),
+        archetype=random.choice(archetypes) if is_fraud else "normal_behavior",
     )
 
 
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
+def save_run(run_id: str, generated_at: datetime, summary: SimSummary, events: List[SimEvent]) -> None:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO simulation_runs(run_id, generated_at, generated, fraud, legit, fraud_ratio)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            """,
+            (run_id, generated_at, summary.generated, summary.fraud, summary.legit, summary.fraud_ratio),
+        )
+        for e in events:
+            cur.execute(
+                """
+                INSERT INTO simulation_events(run_id, transaction_id, user_id, amount, merchant, channel, timestamp, label, archetype)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """,
+                (run_id, e.transaction_id, e.user_id, e.amount, e.merchant, e.channel, e.timestamp, e.label, e.archetype),
+            )
 
 
-@app.get(
-    "/health",
-    response_model=HealthResponse,
-    tags=["health"],
-    summary="Simulation engine liveness and supported fraud archetypes",
-)
+@app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
-    return HealthResponse(status="ok", archetypes=FRAUD_ARCHETYPES)
+    archetypes = load_catalog("fraud_archetypes", "id")
+    return HealthResponse(status="ok", archetypes=archetypes)
 
 
-@app.get(
-    "/archetypes",
-    response_model=ArchetypesResponse,
-    tags=["archetypes"],
-    summary="List all supported fraud archetype identifiers",
-)
+@app.get("/archetypes", response_model=ArchetypesResponse)
 def archetypes() -> ArchetypesResponse:
-    return ArchetypesResponse(archetypes=FRAUD_ARCHETYPES)
+    return ArchetypesResponse(archetypes=load_catalog("fraud_archetypes", "id"))
 
 
-@app.get(
-    "/archetypes/detail",
-    response_model=List[ArchetypeInfo],
-    tags=["archetypes"],
-    summary="Detailed descriptions and risk levels for every fraud archetype",
-)
+@app.get("/archetypes/detail", response_model=List[ArchetypeInfo])
 def archetypes_detail() -> List[ArchetypeInfo]:
-    return ARCHETYPE_METADATA
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT id, description, risk_level FROM fraud_archetypes ORDER BY id")
+        rows = cur.fetchall()
+    return [ArchetypeInfo(**r) for r in rows]
 
 
-@app.post(
-    "/simulate",
-    response_model=SimRunResponse,
-    tags=["simulation"],
-    summary="Generate a synthetic fraud/legit event mix based on the supplied configuration",
-)
+@app.post("/simulate", response_model=SimRunResponse)
 async def simulate(cfg: SimConfig) -> SimRunResponse:
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
+    channels = load_catalog("channel_catalog", "channel")
+    merchants = load_catalog("merchant_catalog", "merchant")
+    archetypes = load_catalog("fraud_archetypes", "id")
+
     count = max(1, min(cfg.count, 500))
     fraud_ratio = max(0.0, min(cfg.fraud_ratio, 1.0))
-
     events: List[SimEvent] = []
     for _ in range(count):
-        is_fraud = random.random() < fraud_ratio
-        events.append(_event(now, cfg.max_amount, is_fraud))
+        events.append(_event(now, cfg.max_amount, random.random() < fraud_ratio, channels, merchants, archetypes))
 
-    fraud_count = len([item for item in events if item.label == "fraud"])
-    summary = SimSummary(
-        generated=count,
-        fraud=fraud_count,
-        legit=count - fraud_count,
-        fraud_ratio=round(fraud_count / count, 4),
-    )
-    generated_at = datetime.utcnow()
+    fraud_count = len([e for e in events if e.label == "fraud"])
+    summary = SimSummary(generated=count, fraud=fraud_count, legit=count - fraud_count, fraud_ratio=round(fraud_count / count, 4))
+    generated_at = datetime.now(timezone.utc)
+    run_id = f"run_{generated_at.strftime('%Y%m%d%H%M%S')}_{random.randint(100,999)}"
 
-    _last_run["events"] = [e.model_dump(mode="json") for e in events]
-    _last_run["summary"] = summary.model_dump()
-    _last_run["generated_at"] = generated_at.isoformat() + "Z"
-
-    logger.info(
-        "simulation complete: count=%d fraud=%d legit=%d",
-        count,
-        fraud_count,
-        count - fraud_count,
-    )
-
+    save_run(run_id, generated_at, summary, events)
+    logger.info("simulation complete run=%s count=%d fraud=%d", run_id, count, fraud_count)
     return SimRunResponse(events=events, summary=summary, generated_at=generated_at)
 
 
-@app.get(
-    "/simulate/last",
-    tags=["simulation"],
-    summary="Return the most recently completed simulation run",
-)
+@app.get("/simulate/last")
 async def last_run() -> Dict:
-    return _last_run
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("SELECT run_id, generated_at, generated, fraud, legit, fraud_ratio FROM simulation_runs ORDER BY generated_at DESC LIMIT 1")
+        run = cur.fetchone()
+        if not run:
+            return {**EMPTY_LAST_RUN, "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")}
+
+        cur.execute(
+            """
+            SELECT transaction_id, user_id, amount, merchant, channel, timestamp, label, archetype
+            FROM simulation_events WHERE run_id=%s ORDER BY id
+            """,
+            (run["run_id"],),
+        )
+        events = cur.fetchall()
+
+    return {
+        "events": [{**e, "timestamp": e["timestamp"].isoformat().replace("+00:00", "Z")} for e in events],
+        "summary": {
+            "generated": run["generated"],
+            "fraud": run["fraud"],
+            "legit": run["legit"],
+            "fraud_ratio": float(run["fraud_ratio"]),
+        },
+        "generated_at": run["generated_at"].isoformat().replace("+00:00", "Z"),
+    }
 
 
 if __name__ == "__main__":
