@@ -2,6 +2,7 @@
 // DashboardPage — KPIs, decision distribution, graph + model-ops summary.
 // ---------------------------------------------------------------------------
 
+import { useRef, useState, useEffect } from 'react'
 import { KpiCard } from '../components/ui/KpiCard'
 import { Panel } from '../components/ui/Panel'
 import { AnimatedBar } from '../components/ui/AnimatedBar'
@@ -26,11 +27,22 @@ const DECISION_COLORS: Record<string, string> = {
 export function DashboardPage({ apiBase }: DashboardPageProps) {
   const [dash, refreshDash] = useApi<DashboardResponse>(apiBase, '/dashboard/overview')
   const [health] = useApi<GatewayHealthResponse>(apiBase, '/health')
+  const [latencyMs, setLatencyMs] = useState<number | null>(null)
+  const fetchStartRef = useRef<number>(0)
+
+  useEffect(() => {
+    if (dash.loading) {
+      fetchStartRef.current = Date.now()
+    } else if (dash.data) {
+      setLatencyMs(Date.now() - fetchStartRef.current)
+    }
+  }, [dash.loading, dash.data])
 
   const kpis = dash.data?.kpis
   const decisionCounts = dash.data?.decision_counts ?? {}
   const graphData = dash.data?.graph as Record<string, number> | undefined
   const modelOps = dash.data?.model_ops
+  const freezeCount = decisionCounts['freeze'] ?? 0
 
   const totalDecisions = Object.values(decisionCounts).reduce((a, b) => a + b, 0)
   const fraudRatePct = kpis ? kpis.fraud_rate * 100 : 0
@@ -41,13 +53,20 @@ export function DashboardPage({ apiBase }: DashboardPageProps) {
         title="Command Dashboard"
         subtitle="Live KPIs, decision distribution, and service health"
         action={
-          <button
-            type="button"
-            onClick={() => void refreshDash()}
-            className="rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 text-xs text-zinc-300 hover:text-cyan-200"
-          >
-            ↻ Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            {latencyMs !== null && (
+              <span className="rounded-md border border-zinc-700 bg-zinc-800/60 px-2.5 py-1 text-[10px] tabular-nums text-zinc-400">
+                ⏱ {latencyMs}ms
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => void refreshDash()}
+              className="rounded-lg border border-zinc-700 bg-zinc-800/60 px-3 py-1.5 text-xs text-zinc-300 hover:text-cyan-200"
+            >
+              ↻ Refresh
+            </button>
+          </div>
         }
       />
 
@@ -56,7 +75,7 @@ export function DashboardPage({ apiBase }: DashboardPageProps) {
         <div className="flex justify-center py-10"><Spinner size="lg" /></div>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <KpiCard
               label="Transactions Seen"
               value={kpis?.transactions_seen}
@@ -80,6 +99,12 @@ export function DashboardPage({ apiBase }: DashboardPageProps) {
               value={kpis?.open_cases}
               accent="violet"
               delay={300}
+            />
+            <KpiCard
+              label="Freeze Events"
+              value={freezeCount}
+              accent="red"
+              delay={400}
             />
           </div>
 

@@ -2,6 +2,7 @@
 // ModelOpsPage — schedule, drift, champion/challenger, actions, history.
 // ---------------------------------------------------------------------------
 
+import { useState, useEffect } from 'react'
 import { Panel } from '../components/ui/Panel'
 import { Badge } from '../components/ui/Badge'
 import { KpiCard } from '../components/ui/KpiCard'
@@ -16,14 +17,23 @@ interface ModelOpsPageProps {
   apiBase: string
 }
 
-function countdown(seconds: number): string {
+function formatCountdown(seconds: number): string {
   if (seconds <= 0) return 'now'
   const d = Math.floor(seconds / 86400)
   const h = Math.floor((seconds % 86400) / 3600)
   const m = Math.floor((seconds % 3600) / 60)
-  if (d > 0) return `${d}d ${h}h`
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
+  const s = seconds % 60
+  if (d > 0) return `${d}d ${h}h ${m}m`
+  if (h > 0) return `${h}h ${m}m ${s}s`
+  if (m > 0) return `${m}m ${s}s`
+  return `${s}s`
+}
+
+function driftSeverity(psi: number): { label: string; cls: string } {
+  if (psi >= 0.20) return { label: 'CRITICAL', cls: 'text-red-400 border-red-500/40 bg-red-500/10' }
+  if (psi >= 0.15) return { label: 'WARNING', cls: 'text-orange-400 border-orange-500/40 bg-orange-500/10' }
+  if (psi >= 0.10) return { label: 'ELEVATED', cls: 'text-amber-400 border-amber-500/40 bg-amber-500/10' }
+  return { label: 'STABLE', cls: 'text-emerald-400 border-emerald-500/40 bg-emerald-500/10' }
 }
 
 export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
@@ -31,8 +41,18 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
   const [promoteState, execPromote] = usePost<{ status: string; champion_version: string }>(apiBase, '/model-ops/promote')
   const [rollbackState, execRollback] = usePost<{ status: string; champion_version: string }>(apiBase, '/model-ops/rollback')
   const [retrainState, execRetrain] = usePost<{ status: string; challenger_version: string }>(apiBase, '/model-ops/retrain-now')
+  const [showRollbackModal, setShowRollbackModal] = useState(false)
+  const [liveCountdown, setLiveCountdown] = useState(0)
 
   const busy = promoteState.status === 'pending' || rollbackState.status === 'pending' || retrainState.status === 'pending'
+
+  // Tick countdown every second
+  useEffect(() => {
+    const base = ops.data?.schedule?.countdown_seconds ?? 0
+    setLiveCountdown(base)
+    const timer = setInterval(() => setLiveCountdown((c) => Math.max(0, c - 1)), 1000)
+    return () => clearInterval(timer)
+  }, [ops.data?.schedule?.countdown_seconds])
 
   async function act(action: 'promote' | 'rollback' | 'retrain') {
     if (action === 'promote') await execPromote()
@@ -50,8 +70,41 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
   const history = data?.history ?? []
   const artifacts = data?.artifacts ?? []
 
+  const psiSeverity = drift ? driftSeverity(drift.psi) : null
+  const prDelta = champion && challenger ? challenger.pr_auc - champion.pr_auc : null
+
   return (
     <div className="flex flex-col gap-6">
+      {/* Rollback safety modal */}
+      {showRollbackModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="w-[420px] rounded-2xl border border-zinc-700 bg-zinc-900 p-6 shadow-2xl">
+            <h3 className="text-base font-semibold text-zinc-100">⚠ Confirm Rollback</h3>
+            <p className="mt-3 text-sm text-zinc-400">
+              This will revert the champion to{' '}
+              <span className="font-mono text-amber-300">xgb_trained_external_v1</span>. All active inference
+              will immediately use the rollback model. This action is audited and logged.
+            </p>
+            <div className="mt-5 flex gap-3">
+              <button
+                type="button"
+                onClick={() => { void act('rollback'); setShowRollbackModal(false) }}
+                className="flex-1 rounded-lg border border-amber-500/30 bg-amber-500/15 py-2 text-sm font-medium text-amber-200 hover:bg-amber-500/25"
+              >
+                Confirm Rollback
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowRollbackModal(false)}
+                className="flex-1 rounded-lg border border-zinc-700 bg-zinc-800 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-700"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <SectionHeader
         title="Model Ops"
         subtitle="Retrain schedule, drift monitoring, champion/challenger lifecycle, and artifacts"
@@ -79,7 +132,7 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
             />
             <KpiCard
               label="Next Retrain In"
-              value={schedule ? countdown(schedule.countdown_seconds) : null}
+              value={schedule ? formatCountdown(liveCountdown) : null}
               sub={schedule?.next_retrain_at ? new Date(schedule.next_retrain_at).toLocaleString() : undefined}
               accent="violet"
             />
@@ -93,7 +146,14 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
           <div className="grid gap-6 lg:grid-cols-12">
             {/* Drift metrics */}
             <Panel className="lg:col-span-4" glow="amber">
-              <h3 className="mb-4 text-sm font-semibold text-zinc-300">Drift Metrics</h3>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-zinc-300">Drift Metrics</h3>
+                {psiSeverity && (
+                  <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wider ${psiSeverity.cls}`}>
+                    {psiSeverity.label}
+                  </span>
+                )}
+              </div>
               {drift ? (
                 <div className="space-y-3">
                   {([
@@ -129,7 +189,20 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
 
             {/* Champion vs Challenger */}
             <Panel className="lg:col-span-5" glow="violet">
-              <h3 className="mb-4 text-sm font-semibold text-zinc-300">Champion vs Challenger</h3>
+              <div className="mb-4 flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-zinc-300">Champion vs Challenger</h3>
+                {prDelta !== null && (
+                  <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold tabular-nums ${
+                    prDelta > 0
+                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400'
+                      : prDelta < 0
+                        ? 'border-red-500/40 bg-red-500/10 text-red-400'
+                        : 'border-zinc-700 bg-zinc-800 text-zinc-400'
+                  }`}>
+                    Δ {prDelta > 0 ? '+' : ''}{prDelta.toFixed(3)}
+                  </span>
+                )}
+              </div>
               <div className="space-y-3">
                 {[
                   { model: champion, role: 'Champion' },
@@ -187,7 +260,7 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void act('rollback')}
+                  onClick={() => setShowRollbackModal(true)}
                   className="flex w-full items-center justify-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/15 px-3 py-2.5 text-sm font-medium text-amber-200 transition hover:bg-amber-500/25 disabled:opacity-50"
                 >
                   {rollbackState.status === 'pending' ? <Spinner size="sm" /> : '↩'} Rollback

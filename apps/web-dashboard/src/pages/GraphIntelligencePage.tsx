@@ -10,6 +10,7 @@ import { SectionHeader } from '../components/ui/SectionHeader'
 import { EmptyState } from '../components/ui/EmptyState'
 import { FraudGraphCanvas } from '../components/ui/FraudGraphCanvas'
 import { useApi } from '../hooks/useApi'
+import { usePresentation } from '../hooks/usePresentation'
 import type { GraphNetworkResponse, GraphOverviewResponse } from '../types/api'
 
 interface GraphIntelligencePageProps {
@@ -26,6 +27,7 @@ function riskColor(risk: number): string {
 export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
   const [overview, refreshOverview] = useApi<GraphOverviewResponse>(apiBase, '/graph-intelligence/overview')
   const [network, refreshNetwork] = useApi<GraphNetworkResponse>(apiBase, '/graph-intelligence/network')
+  const presentation = usePresentation()
 
   const rings = network.data?.rings ?? []
   const nodes = network.data?.nodes ?? []
@@ -68,7 +70,7 @@ export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
         {network.loading ? (
           <div className="flex h-[420px] items-center justify-center"><Spinner size="lg" /></div>
         ) : (
-          <FraudGraphCanvas nodes={nodes} edges={network.data?.edges ?? []} height={420} />
+          <FraudGraphCanvas nodes={nodes} edges={network.data?.edges ?? []} height={420} frozen={presentation} />
         )}
       </Panel>
 

@@ -27,6 +27,7 @@ export function SimulationLabPage({ apiBase }: SimulationLabPageProps) {
   const [archetypes] = useApi<{ archetypes: ArchetypeInfo[] }>(apiBase, '/simulation/archetypes/detail')
   const [graphOverview, refreshGraph] = useApi<GraphOverviewResponse>(apiBase, '/graph-intelligence/overview')
   const [simState, runSim] = usePost<SimRunResponse>(apiBase, '/simulation/run')
+  const [demoState, runDemo] = usePost<SimRunResponse>(apiBase, '/simulation/run-preset/demo-final')
 
   const [cfg, setCfg] = useState({
     count: 50,
@@ -44,11 +45,39 @@ export function SimulationLabPage({ apiBase }: SimulationLabPageProps) {
     }
   }
 
+  async function handleDemoRun() {
+    const result = await runDemo({})
+    if (result) {
+      setLastSummary(result.summary)
+      void refreshGraph()
+    }
+  }
+
   const archList = archetypes.data?.archetypes ?? []
   const summary = lastSummary
+  const demoBusy = demoState.status === 'pending'
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Judge Demo CTA */}
+      <div className="flex items-start gap-4 rounded-xl border border-violet-500/30 bg-violet-500/10 px-5 py-4">
+        <div className="flex-1">
+          <p className="text-sm font-semibold text-violet-200">⬡ Judge Demo Mode</p>
+          <p className="mt-1 text-xs text-zinc-400">
+            Runs a deterministic, seed-locked scenario with 200 accounts · 3 mule rings · geo burst · device-sharing attack · 2 freeze events · 1 OTP · 1 hold escalation. Same story every time.
+          </p>
+          {demoState.error && <p className="mt-1 text-xs text-red-400">{demoState.error}</p>}
+        </div>
+        <button
+          type="button"
+          disabled={demoBusy}
+          onClick={() => void handleDemoRun()}
+          className="shrink-0 flex items-center gap-2 rounded-lg border border-violet-400/50 bg-violet-500/20 px-5 py-2.5 text-sm font-semibold text-violet-200 transition hover:bg-violet-500/30 disabled:opacity-50"
+        >
+          {demoBusy ? <Spinner size="sm" /> : '▶'} Run Judge Demo
+        </button>
+      </div>
+
       <SectionHeader
         title="Simulation Lab"
         subtitle="Inject realistic fraud archetypes and observe system response"

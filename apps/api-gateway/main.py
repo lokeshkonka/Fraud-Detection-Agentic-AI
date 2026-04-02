@@ -522,7 +522,46 @@ async def batch_score(body: List[Dict[str, Any]]) -> Dict[str, Any]:
         raise HTTPException(status_code=503, detail="ml-inference unavailable")
 
 
-@app.get("/simulation/archetypes/detail")
+@app.post("/simulation/run-preset/demo-final")
+async def simulation_run_preset_demo_final() -> Dict[str, Any]:
+    """Deterministic demo scenario — same 200-account fraud story every run."""
+    _ARCHETYPE_VELOCITY: Dict[str, int] = {
+        "mule_ring": 8,
+        "cross_border_smurfing": 7,
+        "account_takeover": 9,
+        "velocity_burst": 12,
+        "synthetic_identity": 6,
+        "friendly_fraud": 4,
+        "merchant_collusion": 6,
+        "normal_behavior": 1,
+    }
+
+    result = await safe_post_json(f"{SIMULATION_ENGINE_URL}/simulate/preset/demo-final", {}, None)
+    if result is None:
+        raise HTTPException(status_code=503, detail="simulation engine unavailable")
+
+    events = result.get("events", [])
+    await safe_post_json(f"{GRAPH_SERVICE_URL}/sync-events", {"events": events}, {})
+
+    for event in events[:300]:
+        archetype = event.get("archetype", "normal_behavior")
+        velocity = _ARCHETYPE_VELOCITY.get(archetype, 2)
+        raw_merchant = event.get("merchant") or ""
+        tx: Dict[str, Any] = {
+            "transaction_id": event.get("transaction_id"),
+            "user_id": event.get("user_id"),
+            "amount": event.get("amount", 0),
+            "merchant": raw_merchant if raw_merchant else None,
+            "channel": event.get("channel", "card"),
+            "timestamp": event.get("timestamp"),
+            "features": {"velocity": velocity},
+        }
+        await safe_post_json(f"{ML_INFERENCE_URL}/score", tx, {})
+
+    return result
+
+
+
 async def simulation_archetypes_detail() -> Dict[str, Any]:
     result = await safe_get_json(f"{SIMULATION_ENGINE_URL}/archetypes/detail", [])
     return {"archetypes": result}

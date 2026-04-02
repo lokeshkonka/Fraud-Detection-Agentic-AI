@@ -210,6 +210,171 @@ async def last_run() -> Dict:
     }
 
 
+DEMO_SEED = 12345
+DEMO_RUN_ID = "run_demo_final_preset"
+
+
+def _make_txn_id(rng: random.Random, prefix: str) -> str:
+    return f"{prefix}_" + "".join(rng.choices(string.ascii_lowercase + string.digits, k=10))
+
+
+@app.post("/simulate/preset/demo-final", response_model=SimRunResponse)
+async def simulate_demo_preset() -> SimRunResponse:
+    """Deterministic, seed-locked demo scenario. Always produces the same story."""
+    rng = random.Random(DEMO_SEED)
+    now = datetime.now(timezone.utc)
+    events: List[SimEvent] = []
+
+    # ── Ring 1: Phoenix — wire-fraud mule ring, 5 accounts × 5 events ──────
+    for i in range(1, 6):
+        uid = f"demo_ring_phoenix_{i:02d}"
+        for j in range(5):
+            events.append(SimEvent(
+                transaction_id=_make_txn_id(rng, f"phoenix_{i:02d}_{j}"),
+                user_id=uid,
+                amount=round(rng.uniform(4500, 9800), 2),
+                merchant="wallet_topup",
+                channel="wire",
+                timestamp=now - timedelta(seconds=rng.randint(0, 7200)),
+                label="fraud",
+                archetype="mule_ring",
+            ))
+
+    # ── Ring 2: Atlas — crypto smurfing, 5 accounts × 3 events ─────────────
+    for i in range(1, 6):
+        uid = f"demo_ring_atlas_{i:02d}"
+        for j in range(3):
+            events.append(SimEvent(
+                transaction_id=_make_txn_id(rng, f"atlas_{i:02d}_{j}"),
+                user_id=uid,
+                amount=round(rng.uniform(2000, 4900), 2),
+                merchant="gaming",
+                channel="crypto",
+                timestamp=now - timedelta(seconds=rng.randint(0, 3600)),
+                label="fraud",
+                archetype="cross_border_smurfing",
+            ))
+
+    # ── Ring 3: Vortex — account takeover, 4 accounts × 3 events ───────────
+    for i in range(1, 5):
+        uid = f"demo_ring_vortex_{i:02d}"
+        for j in range(3):
+            events.append(SimEvent(
+                transaction_id=_make_txn_id(rng, f"vortex_{i:02d}_{j}"),
+                user_id=uid,
+                amount=round(rng.uniform(7000, 9500), 2),
+                merchant="electronics",
+                channel="wire",
+                timestamp=now - timedelta(seconds=rng.randint(60, 1800)),
+                label="fraud",
+                archetype="account_takeover",
+            ))
+
+    # ── Geo burst — 1 account, 12 card transactions in 30 seconds ───────────
+    geo_uid = "demo_geo_burst_01"
+    for j in range(12):
+        events.append(SimEvent(
+            transaction_id=_make_txn_id(rng, f"geo_{j}"),
+            user_id=geo_uid,
+            amount=round(rng.uniform(100, 800), 2),
+            merchant="fuel",
+            channel="card",
+            timestamp=now - timedelta(seconds=max(1, 30 - j * 2)),
+            label="fraud",
+            archetype="velocity_burst",
+        ))
+
+    # ── Device sharing — 5 accounts, same merchant, 3 events each ───────────
+    for i in range(1, 6):
+        uid = f"demo_device_share_{i:02d}"
+        for j in range(3):
+            events.append(SimEvent(
+                transaction_id=_make_txn_id(rng, f"devshare_{i:02d}_{j}"),
+                user_id=uid,
+                amount=round(rng.uniform(800, 2500), 2),
+                merchant="electronics",
+                channel="card",
+                timestamp=now - timedelta(seconds=rng.randint(60, 300)),
+                label="fraud",
+                archetype="synthetic_identity",
+            ))
+
+    # ── 2 explicit freeze-level events (wire, very high amount) ─────────────
+    for i, amt in enumerate([9750.0, 9200.0], start=1):
+        events.append(SimEvent(
+            transaction_id=_make_txn_id(rng, f"freeze_{i}"),
+            user_id=f"demo_freeze_target_{i:02d}",
+            amount=amt,
+            merchant="wallet_topup",
+            channel="wire",
+            timestamp=now - timedelta(seconds=rng.randint(30, 600)),
+            label="fraud",
+            archetype="account_takeover",
+        ))
+
+    # ── 1 OTP trigger (step_up_auth — card, low amount, missing merchant) ───
+    events.append(SimEvent(
+        transaction_id=_make_txn_id(rng, "otp_01"),
+        user_id="demo_otp_user_01",
+        amount=350.0,
+        merchant="",
+        channel="card",
+        timestamp=now - timedelta(seconds=120),
+        label="fraud",
+        archetype="friendly_fraud",
+    ))
+
+    # ── 1 Hold → case escalation (ach, medium amount, missing merchant) ─────
+    events.append(SimEvent(
+        transaction_id=_make_txn_id(rng, "hold_01"),
+        user_id="demo_hold_user_01",
+        amount=3200.0,
+        merchant="",
+        channel="ach",
+        timestamp=now - timedelta(seconds=240),
+        label="fraud",
+        archetype="merchant_collusion",
+    ))
+
+    fraud_count = len(events)
+
+    # ── 176 legit accounts (1 transaction each) — rounds to 200 accounts ────
+    legit_merchants = ["groceries", "travel", "healthcare", "fashion", "fuel"]
+    legit_channels = ["card", "ach"]
+    for i in range(1, 177):
+        events.append(SimEvent(
+            transaction_id=_make_txn_id(rng, f"legit_{i:03d}"),
+            user_id=f"demo_legit_{i:03d}",
+            amount=round(rng.uniform(10, 1500), 2),
+            merchant=rng.choice(legit_merchants),
+            channel=rng.choice(legit_channels),
+            timestamp=now - timedelta(seconds=rng.randint(0, 86400)),
+            label="legit",
+            archetype="normal_behavior",
+        ))
+
+    legit_count = len(events) - fraud_count
+    total = len(events)
+    summary = SimSummary(
+        generated=total,
+        fraud=fraud_count,
+        legit=legit_count,
+        fraud_ratio=round(fraud_count / total, 4),
+    )
+
+    # Idempotent: delete previous preset run (cascade deletes events)
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute("DELETE FROM simulation_runs WHERE run_id=%s", (DEMO_RUN_ID,))
+
+    save_run(DEMO_RUN_ID, now, summary, events)
+    logger.info(
+        "demo preset complete run_id=%s accounts=%d fraud=%d legit=%d total=%d",
+        DEMO_RUN_ID, len(set(e.user_id for e in events)), fraud_count, legit_count, total,
+    )
+    return SimRunResponse(events=events, summary=summary, generated_at=now)
+
+
 if __name__ == "__main__":
     import uvicorn
 
