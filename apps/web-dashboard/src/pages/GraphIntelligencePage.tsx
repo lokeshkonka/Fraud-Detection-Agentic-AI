@@ -8,6 +8,7 @@ import { Spinner } from '../components/ui/Spinner'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { SectionHeader } from '../components/ui/SectionHeader'
 import { EmptyState } from '../components/ui/EmptyState'
+import { FraudGraphCanvas } from '../components/ui/FraudGraphCanvas'
 import { useApi } from '../hooks/useApi'
 import type { GraphNetworkResponse, GraphOverviewResponse } from '../types/api'
 
@@ -57,6 +58,19 @@ export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
           <KpiCard label="Mule Ring Signals" value={overview.data?.mule_ring_signals} accent="violet" />
         </div>
       )}
+
+      {/* Force-directed fraud graph */}
+      <Panel glow="cyan">
+        <h3 className="mb-3 text-base font-semibold text-zinc-100">Entity Network Graph</h3>
+        <p className="mb-3 text-xs text-zinc-500">
+          Force-directed graph of account and merchant nodes. Node size and color reflect risk score. Click a node to inspect.
+        </p>
+        {network.loading ? (
+          <div className="flex h-[420px] items-center justify-center"><Spinner size="lg" /></div>
+        ) : (
+          <FraudGraphCanvas nodes={nodes} edges={network.data?.edges ?? []} height={420} />
+        )}
+      </Panel>
 
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Ring clusters */}

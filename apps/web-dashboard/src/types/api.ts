@@ -142,7 +142,6 @@ export interface ModelLabResponse {
 export interface ExplainResponse {
   transaction_id: string
   score: number
-  label: LabelType
   contributions: Record<string, number>
 }
 
