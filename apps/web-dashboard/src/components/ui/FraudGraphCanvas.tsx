@@ -147,15 +147,14 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
     }
 
     function step() {
-      const W = canvas.width
-      const H = canvas.height
+      const W = canvas!.width
+      const H = canvas!.height
       const sim = simRef.current
       const eIdx = edgeRef.current
       const physicsActive = !frozen || frameCount.current < FREEZE_AFTER_FRAMES
 
       if (physicsActive) {
         frameCount.current++
-        const cx = W / 2
         const cy = H / 2
         for (let i = 0; i < sim.length; i++) {
           const a = sim[i]
@@ -199,7 +198,7 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
         }
       }
 
-      ctx.clearRect(0, 0, W, H)
+      ctx!.clearRect(0, 0, W, H)
       const now = Date.now()
 
       // edges first
@@ -211,12 +210,12 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
         const width = edgeWidthByAmount(e.amount ?? 0)
         drawArrow(a.x, a.y, b.x, b.y, color, width, !!e.suspicious_burst)
         if (e.frozen_path || e.decision === 'freeze') {
-          ctx.strokeStyle = 'rgba(239,68,68,0.24)'
-          ctx.lineWidth = width + 4
-          ctx.beginPath()
-          ctx.moveTo(a.x, a.y)
-          ctx.lineTo(b.x, b.y)
-          ctx.stroke()
+          ctx!.strokeStyle = 'rgba(239,68,68,0.24)'
+          ctx!.lineWidth = width + 4
+          ctx!.beginPath()
+          ctx!.moveTo(a.x, a.y)
+          ctx!.lineTo(b.x, b.y)
+          ctx!.stroke()
         }
       }
 
@@ -228,18 +227,18 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
         const isSelected = selectedNode?.id === n.id
         if (n.status === 'frozen' || n.risk >= 0.9) {
           const pulse = 0.38 + 0.36 * Math.sin(now / 350)
-          ctx.beginPath()
-          ctx.arc(n.x, n.y, r + 3 + pulse * 6, 0, Math.PI * 2)
-          ctx.fillStyle = `rgba(239,68,68,${pulse * 0.26})`
-          ctx.fill()
+          ctx!.beginPath()
+          ctx!.arc(n.x, n.y, r + 3 + pulse * 6, 0, Math.PI * 2)
+          ctx!.fillStyle = `rgba(239,68,68,${pulse * 0.26})`
+          ctx!.fill()
         }
-        ctx.beginPath()
-        ctx.arc(n.x, n.y, r, 0, Math.PI * 2)
-        ctx.fillStyle = `${color}33`
-        ctx.fill()
-        ctx.lineWidth = isSelected || isHovered ? 2.8 : 1.3
-        ctx.strokeStyle = isSelected ? '#ffffff' : color
-        ctx.stroke()
+        ctx!.beginPath()
+        ctx!.arc(n.x, n.y, r, 0, Math.PI * 2)
+        ctx!.fillStyle = `${color}33`
+        ctx!.fill()
+        ctx!.lineWidth = isSelected || isHovered ? 2.8 : 1.3
+        ctx!.strokeStyle = isSelected ? '#ffffff' : color
+        ctx!.stroke()
       }
 
       rafRef.current = requestAnimationFrame(step)

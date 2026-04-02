@@ -19,6 +19,11 @@ function barWidth(val: number, max: number): string {
   return `${Math.min(100, (val / max) * 100)}%`
 }
 
+const DISPLAY_PR_AUC_MIN = 0.84
+const DISPLAY_PR_AUC_MAX = 0.92
+const DISPLAY_ROC_AUC_MIN = 0.95
+const DISPLAY_ROC_AUC_MAX = 0.99
+
 function clampRange(value: number | undefined, lo: number, hi: number): number | null {
   if (typeof value !== 'number' || Number.isNaN(value)) return null
   if (value >= lo && value <= hi) return value
@@ -34,8 +39,8 @@ export function ModelLabPage({ apiBase }: ModelLabPageProps) {
   const drift = modelLab.data?.drift_baseline
 
   const maxVariance = Math.max(...featureStats.map((f) => f.variance), 1)
-  const prAuc = clampRange(model?.pr_auc, 0.84, 0.92)
-  const rocAuc = clampRange(model?.roc_auc, 0.95, 0.99)
+  const prAuc = clampRange(model?.pr_auc, DISPLAY_PR_AUC_MIN, DISPLAY_PR_AUC_MAX)
+  const rocAuc = clampRange(model?.roc_auc, DISPLAY_ROC_AUC_MIN, DISPLAY_ROC_AUC_MAX)
 
   return (
     <div className="flex flex-col gap-6">
