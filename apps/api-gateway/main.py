@@ -27,6 +27,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:543
 class Transaction(BaseModel):
     transaction_id: str
     user_id: str
+    receiver_id: Optional[str] = None
     amount: float
     merchant: Optional[str] = None
     channel: str = "card"
@@ -283,6 +284,21 @@ async def score(tx: Transaction) -> ScoreResponse:
             {},
         )
 
+    # Ensure graph has sender->receiver (or sender->merchant) directional transfer edge semantics.
+    graph_event = {
+        "transaction_id": tx.transaction_id,
+        "user_id": tx.user_id,
+        "receiver_id": tx.receiver_id,
+        "merchant": tx.merchant,
+        "amount": tx.amount,
+        "channel": tx.channel,
+        "timestamp": ts,
+        "label": label,
+        "decision": decision,
+        "score": score_val,
+    }
+    await safe_post_json(f"{GRAPH_SERVICE_URL}/sync-events", {"events": [graph_event]}, {})
+
     return ScoreResponse(**enriched)
 
 
@@ -374,10 +390,18 @@ async def simulation_run(cfg: SimRunConfig) -> Dict[str, Any]:
     events = result.get("events", [])
     await safe_post_json(f"{GRAPH_SERVICE_URL}/sync-events", {"events": events}, {})
 
-    for event in events[:200]:
+    for i, event in enumerate(events[:200]):
+        receiver_id = f"beneficiary_{(i % 11) + 1:02d}"
+        if "demo_victim_" in str(event.get("user_id", "")):
+            receiver_id = "demo_mule_ring_03"
+        elif "demo_mule_ring_03" in str(event.get("user_id", "")):
+            receiver_id = "demo_mule_ring_08"
+        elif "demo_mule_ring_08" in str(event.get("user_id", "")):
+            receiver_id = "sink_account_01"
         tx = {
             "transaction_id": event.get("transaction_id"),
             "user_id": event.get("user_id"),
+            "receiver_id": receiver_id,
             "amount": event.get("amount", 0),
             "merchant": event.get("merchant"),
             "channel": event.get("channel", "card"),
@@ -543,13 +567,22 @@ async def simulation_run_preset_demo_final() -> Dict[str, Any]:
     events = result.get("events", [])
     await safe_post_json(f"{GRAPH_SERVICE_URL}/sync-events", {"events": events}, {})
 
-    for event in events[:300]:
+    for i, event in enumerate(events[:300]):
         archetype = event.get("archetype", "normal_behavior")
         velocity = _ARCHETYPE_VELOCITY.get(archetype, 2)
         raw_merchant = event.get("merchant") or ""
+        src = str(event.get("user_id", ""))
+        receiver_id = f"beneficiary_{(i % 13) + 1:02d}"
+        if "demo_victim_" in src:
+            receiver_id = "demo_mule_ring_03"
+        elif "demo_mule_ring_03" in src:
+            receiver_id = "demo_mule_ring_08"
+        elif "demo_mule_ring_08" in src:
+            receiver_id = "sink_account_01"
         tx: Dict[str, Any] = {
             "transaction_id": event.get("transaction_id"),
             "user_id": event.get("user_id"),
+            "receiver_id": receiver_id,
             "amount": event.get("amount", 0),
             "merchant": raw_merchant if raw_merchant else None,
             "channel": event.get("channel", "card"),
@@ -562,6 +595,7 @@ async def simulation_run_preset_demo_final() -> Dict[str, Any]:
 
 
 
+@app.get("/simulation/archetypes/detail")
 async def simulation_archetypes_detail() -> Dict[str, Any]:
     result = await safe_get_json(f"{SIMULATION_ENGINE_URL}/archetypes/detail", [])
     return {"archetypes": result}

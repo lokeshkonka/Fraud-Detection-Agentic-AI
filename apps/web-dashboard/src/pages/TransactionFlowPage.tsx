@@ -30,22 +30,31 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
   const addToast = useToast()
 
   const [form, setForm] = useState({
+    sender: 'demo_victim_01',
+    receiver: 'demo_mule_ring_03',
     amount: '1250',
     channel: 'card',
     merchant: '',
     velocity: '2',
+    beneficiaryAgeDays: '18',
+    deviceFingerprint: 'device_hub_001',
   })
   const [explainResult, setExplainResult] = useState<Record<string, number> | null>(null)
 
   async function handleScore() {
     const body = {
       transaction_id: `tx-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
-      user_id: 'demo-user',
+      user_id: form.sender,
+      receiver_id: form.receiver,
       amount: Number(form.amount),
       merchant: form.merchant || null,
       channel: form.channel,
       timestamp: new Date().toISOString(),
-      features: { velocity: Number(form.velocity) },
+      features: {
+        velocity: Number(form.velocity),
+        beneficiary_age_days: Number(form.beneficiaryAgeDays),
+        device_fingerprint: form.deviceFingerprint,
+      },
     }
     const result = await postScore(body)
     if (result) {
@@ -85,6 +94,32 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
         <Panel className="lg:col-span-2" glow="cyan">
           <h3 className="mb-4 text-base font-semibold text-zinc-100">Score a Transaction</h3>
           <div className="grid gap-3">
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Sender account</span>
+              <select
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/60"
+                value={form.sender}
+                onChange={(e) => setForm((p) => ({ ...p, sender: e.target.value }))}
+              >
+                {['demo_victim_01', 'demo_victim_02', 'demo_victim_03', 'demo_legit_001'].map((id) => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Receiver account</span>
+              <select
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/60"
+                value={form.receiver}
+                onChange={(e) => setForm((p) => ({ ...p, receiver: e.target.value }))}
+              >
+                {['demo_mule_ring_03', 'demo_mule_ring_08', 'sink_account_01', 'beneficiary_01'].map((id) => (
+                  <option key={id} value={id}>{id}</option>
+                ))}
+              </select>
+            </label>
+
             <label className="grid gap-1">
               <span className="text-xs text-zinc-500">Amount ($)</span>
               <input
@@ -130,6 +165,28 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
               />
             </label>
 
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Beneficiary age (days)</span>
+              <input
+                type="number"
+                min={0}
+                max={3650}
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/60"
+                value={form.beneficiaryAgeDays}
+                onChange={(e) => setForm((p) => ({ ...p, beneficiaryAgeDays: e.target.value }))}
+              />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs text-zinc-500">Device fingerprint</span>
+              <input
+                type="text"
+                className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-cyan-500/60"
+                value={form.deviceFingerprint}
+                onChange={(e) => setForm((p) => ({ ...p, deviceFingerprint: e.target.value }))}
+              />
+            </label>
+
             <button
               type="button"
               disabled={scoreState.status === 'pending'}
@@ -143,6 +200,10 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
           {/* Result */}
           {result && (
             <div className="mt-5 space-y-3 border-t border-zinc-800 pt-4">
+              <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-xs text-zinc-400">
+                Flow: <span className="font-mono text-cyan-300">{form.sender}</span> →{' '}
+                <span className="font-mono text-violet-300">{form.receiver}</span>
+              </div>
               <div className="flex items-center gap-4">
                 <ScoreRing score={result.score} size={72} />
                 <div className="space-y-1">
@@ -151,6 +212,19 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
                   <Badge value={result.decision} size="md" />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-2 rounded-lg border border-zinc-800 bg-zinc-950 p-2 text-xs">
+                <div><p className="text-zinc-500">Rule score</p><p className="text-zinc-200">{result.rule_score.toFixed(3)}</p></div>
+                <div><p className="text-zinc-500">Model score</p><p className="text-zinc-200">{result.model_score.toFixed(3)}</p></div>
+                <div><p className="text-zinc-500">Decision band</p><p className="text-zinc-200">{result.decision}</p></div>
+                <div><p className="text-zinc-500">Case preview</p><p className="text-zinc-200">{result.decision === 'freeze' || result.decision === 'hold' ? 'auto-case open' : 'no case'}</p></div>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-200 hover:bg-cyan-500/20"
+                onClick={() => { window.location.hash = '/graph-intelligence' }}
+              >
+                ↗ Jump to Graph Intelligence
+              </button>
               {result.reasons.length > 0 && (
                 <div className="rounded-lg border border-zinc-800 bg-zinc-950 p-2">
                   <p className="mb-1.5 text-xs text-zinc-500">Risk signals</p>

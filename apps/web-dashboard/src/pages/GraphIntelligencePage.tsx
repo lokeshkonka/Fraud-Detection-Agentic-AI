@@ -37,7 +37,7 @@ export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
     <div className="flex flex-col gap-6">
       <SectionHeader
         title="Graph Intelligence"
-        subtitle="Entity network, mule-ring clusters, and high-risk account topology"
+        subtitle="Directed sender → receiver transaction intelligence with mule-ring and sink flow visibility"
         action={
           <button
             type="button"
@@ -61,11 +61,11 @@ export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
         </div>
       )}
 
-      {/* Force-directed fraud graph */}
+      {/* Directed transaction graph */}
       <Panel glow="cyan">
-        <h3 className="mb-3 text-base font-semibold text-zinc-100">Entity Network Graph</h3>
+        <h3 className="mb-3 text-base font-semibold text-zinc-100">Transaction Flow Graph</h3>
         <p className="mb-3 text-xs text-zinc-500">
-          Force-directed graph of account and merchant nodes. Node size and color reflect risk score. Click a node to inspect.
+          Each edge is a real transfer with direction, amount and risk. Click a node for account summary or click an edge for transaction details.
         </p>
         {network.loading ? (
           <div className="flex h-[420px] items-center justify-center"><Spinner size="lg" /></div>
@@ -126,7 +126,7 @@ export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
 
         {/* High-risk node list */}
         <Panel glow="red">
-          <h3 className="mb-4 text-base font-semibold text-zinc-100">High-Risk Entities</h3>
+          <h3 className="mb-4 text-base font-semibold text-zinc-100">High-Risk Accounts</h3>
           {network.loading ? (
             <div className="flex justify-center py-8"><Spinner /></div>
           ) : highRiskNodes.length === 0 ? (

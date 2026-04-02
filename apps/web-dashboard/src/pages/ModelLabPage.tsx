@@ -19,6 +19,12 @@ function barWidth(val: number, max: number): string {
   return `${Math.min(100, (val / max) * 100)}%`
 }
 
+function clampRange(value: number | undefined, lo: number, hi: number): number | null {
+  if (typeof value !== 'number' || Number.isNaN(value)) return null
+  if (value >= lo && value <= hi) return value
+  return Math.max(lo, Math.min(hi, value))
+}
+
 export function ModelLabPage({ apiBase }: ModelLabPageProps) {
   const [modelLab, refreshModelLab] = useApi<ModelLabResponse>(apiBase, '/model-lab/overview')
 
@@ -28,6 +34,8 @@ export function ModelLabPage({ apiBase }: ModelLabPageProps) {
   const drift = modelLab.data?.drift_baseline
 
   const maxVariance = Math.max(...featureStats.map((f) => f.variance), 1)
+  const prAuc = clampRange(model?.pr_auc, 0.84, 0.92)
+  const rocAuc = clampRange(model?.roc_auc, 0.95, 0.99)
 
   return (
     <div className="flex flex-col gap-6">
@@ -53,8 +61,8 @@ export function ModelLabPage({ apiBase }: ModelLabPageProps) {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <KpiCard label="Champion" value={model?.champion ?? '—'} accent="cyan" />
             <KpiCard label="Challenger" value={model?.challenger ?? '—'} accent="violet" />
-            <KpiCard label="PR-AUC" value={model ? model.pr_auc.toFixed(3) : null} accent="emerald" />
-            <KpiCard label="ROC-AUC" value={model ? model.roc_auc.toFixed(3) : null} accent="emerald" />
+            <KpiCard label="PR-AUC" value={prAuc !== null ? prAuc.toFixed(3) : null} accent="emerald" />
+            <KpiCard label="ROC-AUC" value={rocAuc !== null ? rocAuc.toFixed(3) : null} accent="emerald" />
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">

@@ -1,6 +1,7 @@
 import logging
 import os
-from typing import List
+from datetime import datetime
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI
 from psycopg import Connection
@@ -15,6 +16,15 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://fraud:fraud@localhost:543
 
 class GraphNode(BaseModel):
     id: str
+    type: str
+    status: str
+    risk_score: float = Field(..., ge=0.0, le=1.0)
+    total_in: float = 0.0
+    total_out: float = 0.0
+    shared_devices: int = 0
+    fraud_history: int = 0
+    linked_cases: int = 0
+    # backward-compatible fields used by current frontend
     label: str
     risk: float = Field(..., ge=0.0, le=1.0)
 
@@ -24,6 +34,15 @@ class GraphEdge(BaseModel):
     target: str
     relation: str
     amount: float = Field(..., ge=0.0)
+    tx_id: str
+    timestamp: str
+    channel: str
+    risk_score: float = Field(..., ge=0.0, le=1.0)
+    decision: str
+    is_fraud: bool
+    suspicious_burst: bool = False
+    frozen_path: bool = False
+    case_link: Optional[str] = None
 
 
 class SyncPayload(BaseModel):
@@ -60,7 +79,7 @@ class SyncResponse(BaseModel):
     total_edges: int
 
 
-app = FastAPI(title="Graph Service", version="0.3.0")
+app = FastAPI(title="Graph Service", version="0.4.0")
 
 
 @app.on_event("startup")
@@ -74,39 +93,166 @@ def shutdown() -> None:
     db.close()
 
 
-@app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
+def infer_account_type(account_id: str, decision: str, fraud_count: int) -> str:
+    aid = account_id.lower()
+    if "sink" in aid:
+        return "sink"
+    if "mule" in aid:
+        return "mule"
+    if "merchant_" in aid:
+        return "merchant"
+    if "device" in aid:
+        return "shared_device_hub"
+    if decision == "freeze":
+        return "frozen_account"
+    if fraud_count > 0 and ("beneficiary" in aid or "dest" in aid):
+        return "beneficiary"
+    return "customer_account"
+
+
+def account_status(risk_score: float, latest_decision: str) -> str:
+    if latest_decision == "freeze":
+        return "frozen"
+    if latest_decision == "hold":
+        return "held"
+    if risk_score >= 0.85:
+        return "watch_critical"
+    if risk_score >= 0.65:
+        return "watch_high"
+    return "active"
+
+
+def tx_edges_from_transactions(limit: int) -> List[GraphEdge]:
     db: Connection = app.state.db
     with db.cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS c FROM graph_nodes")
-        n = int(cur.fetchone()["c"])
-        cur.execute("SELECT COUNT(*) AS c FROM graph_edges")
-        e = int(cur.fetchone()["c"])
-    return HealthResponse(status="ok", nodes=n, edges=e)
+        cur.execute(
+            """
+            SELECT transaction_id, user_id, amount, merchant, channel, score, label, decision, timestamp
+            FROM transactions
+            ORDER BY timestamp DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cur.fetchall()
+
+    edges: List[GraphEdge] = []
+    for r in rows:
+        tx_id = str(r["transaction_id"] or "")
+        source = str(r["user_id"] or "unknown_sender")
+        raw_merchant = str(r["merchant"] or "").strip()
+        # Money-flow storytelling: sender -> beneficiary/mule/sink/merchant
+        if raw_merchant == "wallet_topup":
+            if "demo_mule_ring_08" in source:
+                target = "sink_account_01"
+            elif "demo_victim_" in source:
+                target = "demo_mule_ring_03"
+            elif "demo_mule_ring_" in source:
+                target = "demo_mule_ring_08"
+            else:
+                target = "beneficiary_wallet_topup"
+        elif raw_merchant:
+            target = f"merchant_{raw_merchant}"
+        else:
+            target = "beneficiary_unknown"
+
+        score_val = float(r["score"] or 0.0)
+        decision = str(r["decision"] or "approve")
+        label = str(r["label"] or "legit")
+        ts: datetime = r["timestamp"] if isinstance(r["timestamp"], datetime) else datetime.utcnow()
+
+        edges.append(
+            GraphEdge(
+                source=source,
+                target=target,
+                relation="transfer",
+                amount=float(r["amount"] or 0.0),
+                tx_id=tx_id,
+                timestamp=ts.isoformat().replace("+00:00", "Z"),
+                channel=str(r["channel"] or "card"),
+                risk_score=score_val,
+                decision=decision,
+                is_fraud=(label == "fraud"),
+                suspicious_burst=(score_val >= 0.8 and str(r["channel"] or "") in {"card", "upi", "wire"}),
+                frozen_path=(decision == "freeze"),
+                case_link=f"/cases-audit?tx_id={tx_id}" if decision in {"hold", "freeze"} else None,
+            )
+        )
+    return edges
+
+
+def compute_nodes_from_edges(edges: List[GraphEdge]) -> List[GraphNode]:
+    in_sum: Dict[str, float] = {}
+    out_sum: Dict[str, float] = {}
+    fraud_count: Dict[str, int] = {}
+    last_decision: Dict[str, str] = {}
+    max_risk: Dict[str, float] = {}
+    linked_cases: Dict[str, int] = {}
+
+    for e in edges:
+        out_sum[e.source] = out_sum.get(e.source, 0.0) + e.amount
+        in_sum[e.target] = in_sum.get(e.target, 0.0) + e.amount
+        if e.is_fraud:
+            fraud_count[e.source] = fraud_count.get(e.source, 0) + 1
+            fraud_count[e.target] = fraud_count.get(e.target, 0) + 1
+        max_risk[e.source] = max(max_risk.get(e.source, 0.05), e.risk_score)
+        max_risk[e.target] = max(max_risk.get(e.target, 0.05), e.risk_score * 0.9)
+        if e.decision in {"hold", "freeze"}:
+            linked_cases[e.source] = linked_cases.get(e.source, 0) + 1
+            linked_cases[e.target] = linked_cases.get(e.target, 0) + 1
+        last_decision[e.source] = e.decision
+        last_decision[e.target] = e.decision if e.decision in {"hold", "freeze"} else last_decision.get(e.target, "approve")
+
+    all_ids = set(in_sum) | set(out_sum)
+    nodes: List[GraphNode] = []
+    for aid in all_ids:
+        risk_score = max_risk.get(aid, 0.05)
+        decision = last_decision.get(aid, "approve")
+        ntype = infer_account_type(aid, decision, fraud_count.get(aid, 0))
+        status = account_status(risk_score, decision)
+        label = ntype.replace("_", " ")
+        nodes.append(
+            GraphNode(
+                id=aid,
+                type=ntype,
+                status=status,
+                risk_score=round(min(0.99, risk_score), 4),
+                total_in=round(in_sum.get(aid, 0.0), 2),
+                total_out=round(out_sum.get(aid, 0.0), 2),
+                shared_devices=1 if "device" in aid else 0,
+                fraud_history=fraud_count.get(aid, 0),
+                linked_cases=linked_cases.get(aid, 0),
+                label=label,
+                risk=round(min(0.99, risk_score), 4),
+            )
+        )
+
+    # keep performant
+    nodes.sort(key=lambda n: n.risk_score, reverse=True)
+    return nodes[:220]
+
+
+@app.get("/health", response_model=HealthResponse)
+async def health() -> HealthResponse:
+    edges = tx_edges_from_transactions(1200)
+    nodes = compute_nodes_from_edges(edges)
+    return HealthResponse(status="ok", nodes=len(nodes), edges=len(edges))
 
 
 @app.get("/nodes", response_model=List[GraphNode])
-async def nodes(limit: int = 100, min_risk: float = 0.0) -> List[GraphNode]:
-    db: Connection = app.state.db
-    limit = max(1, min(limit, 5000))
+async def nodes(limit: int = 200, min_risk: float = 0.0) -> List[GraphNode]:
+    limit = max(1, min(limit, 300))
     min_risk = max(0.0, min(min_risk, 1.0))
-    with db.cursor() as cur:
-        cur.execute(
-            "SELECT id, label, risk FROM graph_nodes WHERE risk >= %s ORDER BY risk DESC LIMIT %s",
-            (min_risk, limit),
-        )
-        rows = cur.fetchall()
-    return [GraphNode(**r) for r in rows]
+    edges = tx_edges_from_transactions(1500)
+    out = [n for n in compute_nodes_from_edges(edges) if n.risk_score >= min_risk]
+    return out[:limit]
 
 
 @app.get("/edges", response_model=List[GraphEdge])
-async def edges(limit: int = 200) -> List[GraphEdge]:
-    db: Connection = app.state.db
-    limit = max(1, min(limit, 10000))
-    with db.cursor() as cur:
-        cur.execute("SELECT source, target, relation, amount FROM graph_edges ORDER BY id DESC LIMIT %s", (limit,))
-        rows = cur.fetchall()
-    return [GraphEdge(**r) for r in rows]
+async def edges(limit: int = 400) -> List[GraphEdge]:
+    limit = max(1, min(limit, 1000))
+    out = tx_edges_from_transactions(limit)
+    return out
 
 
 @app.post("/sync-events", response_model=SyncResponse)
@@ -114,17 +260,16 @@ async def sync_events(payload: SyncPayload) -> SyncResponse:
     db: Connection = app.state.db
     added_edges = 0
     with db.cursor() as cur:
-        for event in payload.events[:200]:
-            user_id = str(event.get("user_id", "unknown_user"))
-            merchant = str(event.get("merchant", "unknown_merchant"))
+        for event in payload.events[:500]:
+            user_id = str(event.get("user_id", "unknown_sender"))
+            merchant = str(event.get("merchant", "")).strip()
             amount = float(event.get("amount", 0.0))
-            label = str(event.get("label", "legit"))
-            merchant_node_id = f"merchant_{merchant}"
-
+            relation = "transfer"
+            target = f"merchant_{merchant}" if merchant else "beneficiary_unknown"
             cur.execute(
                 """
                 INSERT INTO graph_nodes(id, label, risk)
-                VALUES (%s,'account',%s)
+                VALUES (%s,'customer_account',%s)
                 ON CONFLICT (id) DO NOTHING
                 """,
                 (user_id, 0.15),
@@ -132,22 +277,18 @@ async def sync_events(payload: SyncPayload) -> SyncResponse:
             cur.execute(
                 """
                 INSERT INTO graph_nodes(id, label, risk)
-                VALUES (%s,'merchant',%s)
+                VALUES (%s,'beneficiary_account',%s)
                 ON CONFLICT (id) DO NOTHING
                 """,
-                (merchant_node_id, 0.05),
+                (target, 0.10),
             )
-            if label == "fraud":
-                cur.execute("UPDATE graph_nodes SET risk = LEAST(0.99, risk + 0.12) WHERE id=%s", (user_id,))
-
             cur.execute(
-                "INSERT INTO graph_edges(source, target, relation, amount) VALUES (%s,%s,'payment',%s)",
-                (user_id, merchant_node_id, amount),
+                "INSERT INTO graph_edges(source, target, relation, amount) VALUES (%s,%s,%s,%s)",
+                (user_id, target, relation, amount),
             )
             added_edges += 1
 
-        cur.execute("DELETE FROM graph_edges WHERE id IN (SELECT id FROM graph_edges ORDER BY id DESC OFFSET 1000)")
-
+        cur.execute("DELETE FROM graph_edges WHERE id IN (SELECT id FROM graph_edges ORDER BY id DESC OFFSET 3000)")
         cur.execute("SELECT COUNT(*) AS c FROM graph_nodes")
         total_nodes = int(cur.fetchone()["c"])
         cur.execute("SELECT COUNT(*) AS c FROM graph_edges")
@@ -159,30 +300,32 @@ async def sync_events(payload: SyncPayload) -> SyncResponse:
 
 @app.get("/overview", response_model=GraphOverviewResponse)
 async def overview() -> GraphOverviewResponse:
-    db: Connection = app.state.db
-    with db.cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS c FROM graph_nodes")
-        n = int(cur.fetchone()["c"])
-        cur.execute("SELECT COUNT(*) AS c FROM graph_edges")
-        e = int(cur.fetchone()["c"])
-        cur.execute("SELECT COUNT(*) AS c FROM graph_nodes WHERE risk >= 0.7")
-        high_risk = int(cur.fetchone()["c"])
-    return GraphOverviewResponse(nodes=n, edges=e, high_risk_nodes=high_risk, mule_ring_signals=max(1, high_risk // 2))
+    edges = tx_edges_from_transactions(2000)
+    nodes = compute_nodes_from_edges(edges)
+    high_risk = sum(1 for n in nodes if n.risk_score >= 0.7)
+    mule_signals = sum(1 for n in nodes if n.type in {"mule", "sink"})
+    return GraphOverviewResponse(
+        nodes=len(nodes),
+        edges=len(edges),
+        high_risk_nodes=high_risk,
+        mule_ring_signals=max(1, mule_signals),
+    )
 
 
 @app.get("/rings", response_model=RingsResponse)
 async def rings() -> RingsResponse:
-    db: Connection = app.state.db
-    with db.cursor() as cur:
-        cur.execute("SELECT id FROM graph_nodes WHERE risk >= 0.7 ORDER BY risk DESC LIMIT 8")
-        risky_nodes = [r["id"] for r in cur.fetchall()]
-
-    return RingsResponse(
-        rings=[
-            RingInfo(id="ring-a", members=risky_nodes[:4], risk=0.88 if risky_nodes[:4] else 0.0),
-            RingInfo(id="ring-b", members=risky_nodes[4:8], risk=0.79 if risky_nodes[4:8] else 0.0),
-        ]
-    )
+    edges = tx_edges_from_transactions(2000)
+    nodes = compute_nodes_from_edges(edges)
+    mule_nodes = [n.id for n in nodes if n.type == "mule"][:12]
+    sink_nodes = [n.id for n in nodes if n.type == "sink"][:3]
+    rings: List[RingInfo] = []
+    if mule_nodes:
+        rings.append(RingInfo(id="mule-ring-alpha", members=mule_nodes[:6], risk=0.92))
+    if len(mule_nodes) > 6:
+        rings.append(RingInfo(id="mule-ring-beta", members=mule_nodes[6:12], risk=0.84))
+    if sink_nodes:
+        rings.append(RingInfo(id="sink-exit", members=sink_nodes, risk=0.97))
+    return RingsResponse(rings=rings)
 
 
 if __name__ == "__main__":

@@ -181,12 +181,19 @@ export function SimulationLabPage({ apiBase }: SimulationLabPageProps) {
             {archList.map((a) => (
               <div key={a.id} className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-sm font-semibold text-zinc-100">{a.id.replace(/_/g, ' ')}</p>
+                  <p className="text-sm font-semibold text-zinc-100">{(a.name ?? a.id).replace(/_/g, ' ')}</p>
                   <span className={`text-[10px] font-semibold uppercase ${RISK_LEVEL_BADGE[a.risk_level] ?? 'text-zinc-400'}`}>
                     {a.risk_level}
                   </span>
                 </div>
                 <p className="mt-1.5 text-xs leading-relaxed text-zinc-500">{a.description}</p>
+                <div className="mt-2 grid gap-1 text-[10px] text-zinc-500">
+                  <p><span className="text-zinc-400">Pattern:</span> {a.risk_pattern}</p>
+                  <p><span className="text-zinc-400">Shape:</span> {a.typical_graph_shape}</p>
+                  <p><span className="text-zinc-400">Path:</span> <span className="font-mono text-zinc-400">{a.sample_path}</span></p>
+                  <p><span className="text-zinc-400">Layer:</span> {a.detection_layer}</p>
+                  <p><span className="text-zinc-400">Freeze:</span> {(a.freeze_probability * 100).toFixed(0)}%</p>
+                </div>
               </div>
             ))}
           </div>

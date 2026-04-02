@@ -227,14 +227,28 @@ export interface SimRunResponse {
 
 export interface ArchetypeInfo {
   id: string
+  name: string
   description: string
   risk_level: string
+  risk_pattern: string
+  typical_graph_shape: string
+  sample_path: string
+  detection_layer: string
+  freeze_probability: number
 }
 
 // ── Graph Service ────────────────────────────────────────────────────────────
 
 export interface GraphNode {
   id: string
+  type: string
+  status: string
+  risk_score: number
+  total_in: number
+  total_out: number
+  shared_devices: number
+  fraud_history: number
+  linked_cases: number
   label: string
   risk: number
 }
@@ -244,6 +258,15 @@ export interface GraphEdge {
   target: string
   relation: string
   amount: number
+  tx_id: string
+  timestamp: string
+  channel: string
+  risk_score: number
+  decision: string
+  is_fraud: boolean
+  suspicious_burst?: boolean
+  frozen_path?: boolean
+  case_link?: string | null
 }
 
 export interface GraphNetworkResponse {

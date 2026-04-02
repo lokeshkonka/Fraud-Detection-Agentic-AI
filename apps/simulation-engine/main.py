@@ -49,8 +49,14 @@ class SimRunResponse(BaseModel):
 
 class ArchetypeInfo(BaseModel):
     id: str
+    name: str
     description: str
     risk_level: str
+    risk_pattern: str
+    typical_graph_shape: str
+    sample_path: str
+    detection_layer: str
+    freeze_probability: float
 
 
 class ArchetypesResponse(BaseModel):
@@ -154,7 +160,81 @@ def archetypes_detail() -> List[ArchetypeInfo]:
     with db.cursor() as cur:
         cur.execute("SELECT id, description, risk_level FROM fraud_archetypes ORDER BY id")
         rows = cur.fetchall()
-    return [ArchetypeInfo(**r) for r in rows]
+    details: Dict[str, Dict[str, str | float]] = {
+        "mule_ring": {
+            "name": "Mule Ring Routing",
+            "risk_pattern": "multi-hop laundering with repeated beneficiary funnels",
+            "typical_graph_shape": "fan-in → ring cycle → sink fan-out",
+            "sample_path": "victim_1 → mule_3 → mule_8 → sink_1",
+            "detection_layer": "graph-intel + velocity + AML",
+            "freeze_probability": 0.92,
+        },
+        "account_takeover": {
+            "name": "Account Takeover",
+            "risk_pattern": "new-device high-value transfer burst",
+            "typical_graph_shape": "single source → rapid high-risk exits",
+            "sample_path": "victim_3 → mule_3 → sink_1",
+            "detection_layer": "behavior + device + rules",
+            "freeze_probability": 0.88,
+        },
+        "friendly_fraud": {
+            "name": "Friendly Fraud",
+            "risk_pattern": "low-value soft-risk dispute behavior",
+            "typical_graph_shape": "single edge with weak graph support",
+            "sample_path": "customer_14 → merchant_2",
+            "detection_layer": "rules + post-transaction monitoring",
+            "freeze_probability": 0.31,
+        },
+        "cross_border_smurfing": {
+            "name": "Cross Border Smurfing",
+            "risk_pattern": "many mid-size transfers just below controls",
+            "typical_graph_shape": "burst fan-out to multiple beneficiary hops",
+            "sample_path": "customer_22 → beneficiary_9 → mule_8",
+            "detection_layer": "threshold + sequence + graph",
+            "freeze_probability": 0.74,
+        },
+        "merchant_collusion": {
+            "name": "Merchant Collusion",
+            "risk_pattern": "refund or payout recycling loops",
+            "typical_graph_shape": "merchant ↔ mule feedback loop",
+            "sample_path": "customer_8 → merchant_3 → mule_3",
+            "detection_layer": "merchant risk + graph loops",
+            "freeze_probability": 0.69,
+        },
+        "synthetic_identity": {
+            "name": "Synthetic Identity",
+            "risk_pattern": "shared device fingerprint across accounts",
+            "typical_graph_shape": "device hub linking multiple senders",
+            "sample_path": "customer_2 → device_hub_1 → mule_3",
+            "detection_layer": "identity + graph + velocity",
+            "freeze_probability": 0.81,
+        },
+        "velocity_burst": {
+            "name": "Velocity Burst",
+            "risk_pattern": "rapid sequential transactions in short window",
+            "typical_graph_shape": "burst fan-out from compromised source",
+            "sample_path": "victim_2 → mule_3 (x4 in 30s)",
+            "detection_layer": "velocity + temporal anomaly",
+            "freeze_probability": 0.84,
+        },
+    }
+    out: List[ArchetypeInfo] = []
+    for r in rows:
+        extra = details.get(r["id"], {})
+        out.append(
+            ArchetypeInfo(
+                id=r["id"],
+                name=str(extra.get("name", r["id"].replace("_", " ").title())),
+                description=r["description"],
+                risk_level=r["risk_level"],
+                risk_pattern=str(extra.get("risk_pattern", "pattern unavailable")),
+                typical_graph_shape=str(extra.get("typical_graph_shape", "graph pattern unavailable")),
+                sample_path=str(extra.get("sample_path", "n/a")),
+                detection_layer=str(extra.get("detection_layer", "rules + ml")),
+                freeze_probability=float(extra.get("freeze_probability", 0.5)),
+            )
+        )
+    return out
 
 
 @app.post("/simulate", response_model=SimRunResponse)
@@ -224,134 +304,129 @@ async def simulate_demo_preset() -> SimRunResponse:
     rng = random.Random(DEMO_SEED)
     now = datetime.now(timezone.utc)
     events: List[SimEvent] = []
-
-    # ── Ring 1: Phoenix — wire-fraud mule ring, 5 accounts × 5 events ──────
-    for i in range(1, 6):
-        uid = f"demo_ring_phoenix_{i:02d}"
-        for j in range(5):
-            events.append(SimEvent(
-                transaction_id=_make_txn_id(rng, f"phoenix_{i:02d}_{j}"),
+    # Story anchors: 3 victims, 1 mule ring, 1 sink, 8 linked transactions.
+    linked_story_events = [
+        ("demo_victim_01", 8700.0, "wire", "wallet_topup", "mule_ring", 12),
+        ("demo_victim_02", 9100.0, "wire", "wallet_topup", "mule_ring", 11),
+        ("demo_victim_03", 7600.0, "wire", "wallet_topup", "mule_ring", 10),
+        ("demo_mule_ring_03", 7400.0, "wire", "wallet_topup", "mule_ring", 9),
+        ("demo_mule_ring_08", 7200.0, "wire", "wallet_topup", "mule_ring", 8),
+        ("demo_mule_ring_03", 6500.0, "wire", "wallet_topup", "mule_ring", 7),
+        ("demo_mule_ring_08", 6400.0, "wire", "wallet_topup", "mule_ring", 6),
+        ("demo_mule_ring_08", 9800.0, "wire", "wallet_topup", "account_takeover", 5),
+    ]
+    for idx, (uid, amt, channel, merchant, archetype, seconds_ago) in enumerate(linked_story_events, start=1):
+        events.append(
+            SimEvent(
+                transaction_id=_make_txn_id(rng, f"story_{idx}"),
                 user_id=uid,
-                amount=round(rng.uniform(4500, 9800), 2),
-                merchant="wallet_topup",
-                channel="wire",
-                timestamp=now - timedelta(seconds=rng.randint(0, 7200)),
+                amount=amt,
+                merchant=merchant,
+                channel=channel,
+                timestamp=now - timedelta(seconds=seconds_ago),
                 label="fraud",
-                archetype="mule_ring",
-            ))
+                archetype=archetype,
+            )
+        )
 
-    # ── Ring 2: Atlas — crypto smurfing, 5 accounts × 3 events ─────────────
-    for i in range(1, 6):
-        uid = f"demo_ring_atlas_{i:02d}"
-        for j in range(3):
-            events.append(SimEvent(
-                transaction_id=_make_txn_id(rng, f"atlas_{i:02d}_{j}"),
-                user_id=uid,
-                amount=round(rng.uniform(2000, 4900), 2),
-                merchant="gaming",
-                channel="crypto",
-                timestamp=now - timedelta(seconds=rng.randint(0, 3600)),
-                label="fraud",
-                archetype="cross_border_smurfing",
-            ))
-
-    # ── Ring 3: Vortex — account takeover, 4 accounts × 3 events ───────────
-    for i in range(1, 5):
-        uid = f"demo_ring_vortex_{i:02d}"
-        for j in range(3):
-            events.append(SimEvent(
-                transaction_id=_make_txn_id(rng, f"vortex_{i:02d}_{j}"),
-                user_id=uid,
-                amount=round(rng.uniform(7000, 9500), 2),
-                merchant="electronics",
-                channel="wire",
-                timestamp=now - timedelta(seconds=rng.randint(60, 1800)),
-                label="fraud",
-                archetype="account_takeover",
-            ))
-
-    # ── Geo burst — 1 account, 12 card transactions in 30 seconds ───────────
-    geo_uid = "demo_geo_burst_01"
-    for j in range(12):
-        events.append(SimEvent(
-            transaction_id=_make_txn_id(rng, f"geo_{j}"),
-            user_id=geo_uid,
-            amount=round(rng.uniform(100, 800), 2),
-            merchant="fuel",
-            channel="card",
-            timestamp=now - timedelta(seconds=max(1, 30 - j * 2)),
-            label="fraud",
-            archetype="velocity_burst",
-        ))
-
-    # ── Device sharing — 5 accounts, same merchant, 3 events each ───────────
-    for i in range(1, 6):
-        uid = f"demo_device_share_{i:02d}"
-        for j in range(3):
-            events.append(SimEvent(
-                transaction_id=_make_txn_id(rng, f"devshare_{i:02d}_{j}"),
-                user_id=uid,
-                amount=round(rng.uniform(800, 2500), 2),
-                merchant="electronics",
-                channel="card",
-                timestamp=now - timedelta(seconds=rng.randint(60, 300)),
-                label="fraud",
-                archetype="synthetic_identity",
-            ))
-
-    # ── 2 explicit freeze-level events (wire, very high amount) ─────────────
-    for i, amt in enumerate([9750.0, 9200.0], start=1):
-        events.append(SimEvent(
-            transaction_id=_make_txn_id(rng, f"freeze_{i}"),
-            user_id=f"demo_freeze_target_{i:02d}",
-            amount=amt,
+    # Explicit freeze / hold / OTP narrative events.
+    events.append(
+        SimEvent(
+            transaction_id=_make_txn_id(rng, "freeze_a"),
+            user_id="demo_victim_02",
+            amount=9750.0,
             merchant="wallet_topup",
             channel="wire",
-            timestamp=now - timedelta(seconds=rng.randint(30, 600)),
+            timestamp=now - timedelta(seconds=4),
             label="fraud",
             archetype="account_takeover",
-        ))
+        )
+    )
+    events.append(
+        SimEvent(
+            transaction_id=_make_txn_id(rng, "freeze_b"),
+            user_id="demo_victim_03",
+            amount=9300.0,
+            merchant="wallet_topup",
+            channel="wire",
+            timestamp=now - timedelta(seconds=3),
+            label="fraud",
+            archetype="account_takeover",
+        )
+    )
+    events.append(
+        SimEvent(
+            transaction_id=_make_txn_id(rng, "hold_01"),
+            user_id="demo_victim_01",
+            amount=3200.0,
+            merchant="",
+            channel="ach",
+            timestamp=now - timedelta(seconds=2),
+            label="fraud",
+            archetype="merchant_collusion",
+        )
+    )
+    events.append(
+        SimEvent(
+            transaction_id=_make_txn_id(rng, "otp_01"),
+            user_id="demo_victim_01",
+            amount=380.0,
+            merchant="",
+            channel="card",
+            timestamp=now - timedelta(seconds=1),
+            label="fraud",
+            archetype="friendly_fraud",
+        )
+    )
 
-    # ── 1 OTP trigger (step_up_auth — card, low amount, missing merchant) ───
-    events.append(SimEvent(
-        transaction_id=_make_txn_id(rng, "otp_01"),
-        user_id="demo_otp_user_01",
-        amount=350.0,
-        merchant="",
-        channel="card",
-        timestamp=now - timedelta(seconds=120),
-        label="fraud",
-        archetype="friendly_fraud",
-    ))
-
-    # ── 1 Hold → case escalation (ach, medium amount, missing merchant) ─────
-    events.append(SimEvent(
-        transaction_id=_make_txn_id(rng, "hold_01"),
-        user_id="demo_hold_user_01",
-        amount=3200.0,
-        merchant="",
-        channel="ach",
-        timestamp=now - timedelta(seconds=240),
-        label="fraud",
-        archetype="merchant_collusion",
-    ))
+    # Additional ring and device-sharing realism.
+    for i in range(1, 10):
+        uid = f"demo_mule_ring_{i:02d}"
+        events.append(
+            SimEvent(
+                transaction_id=_make_txn_id(rng, f"ring_extra_{i}"),
+                user_id=uid,
+                amount=round(rng.uniform(1800, 6100), 2),
+                merchant="wallet_topup",
+                channel="wire" if i % 2 == 0 else "crypto",
+                timestamp=now - timedelta(seconds=rng.randint(30, 1800)),
+                label="fraud",
+                archetype="cross_border_smurfing",
+            )
+        )
+    for i in range(1, 6):
+        uid = f"demo_device_share_{i:02d}"
+        events.append(
+            SimEvent(
+                transaction_id=_make_txn_id(rng, f"devshare_{i}"),
+                user_id=uid,
+                amount=round(rng.uniform(700, 2600), 2),
+                merchant="electronics",
+                channel="card",
+                timestamp=now - timedelta(seconds=rng.randint(40, 240)),
+                label="fraud",
+                archetype="synthetic_identity",
+            )
+        )
 
     fraud_count = len(events)
 
-    # ── 176 legit accounts (1 transaction each) — rounds to 200 accounts ────
+    # Keep exactly 200 accounts by adding 183 legit unique users.
     legit_merchants = ["groceries", "travel", "healthcare", "fashion", "fuel"]
-    legit_channels = ["card", "ach"]
-    for i in range(1, 177):
-        events.append(SimEvent(
-            transaction_id=_make_txn_id(rng, f"legit_{i:03d}"),
-            user_id=f"demo_legit_{i:03d}",
-            amount=round(rng.uniform(10, 1500), 2),
-            merchant=rng.choice(legit_merchants),
-            channel=rng.choice(legit_channels),
-            timestamp=now - timedelta(seconds=rng.randint(0, 86400)),
-            label="legit",
-            archetype="normal_behavior",
-        ))
+    legit_channels = ["card", "ach", "upi"]
+    for i in range(1, 184):
+        events.append(
+            SimEvent(
+                transaction_id=_make_txn_id(rng, f"legit_{i:03d}"),
+                user_id=f"demo_legit_{i:03d}",
+                amount=round(rng.uniform(10, 1400), 2),
+                merchant=rng.choice(legit_merchants),
+                channel=rng.choice(legit_channels),
+                timestamp=now - timedelta(seconds=rng.randint(60, 86400)),
+                label="legit",
+                archetype="normal_behavior",
+            )
+        )
 
     legit_count = len(events) - fraud_count
     total = len(events)
