@@ -11,6 +11,7 @@ interface Props {
   edges: GraphEdge[]
   height?: number
   frozen?: boolean
+  demoActive?: boolean
 }
 
 interface SimNode {
@@ -51,17 +52,17 @@ function edgeColorByRisk(risk: number): string {
   if (risk >= 0.9) return '#ef4444'
   if (risk >= 0.75) return '#f97316'
   if (risk >= 0.55) return '#f59e0b'
-  return '#52525b'
+  return '#71717a'
 }
 
 function edgeWidthByAmount(amount: number): number {
   if (amount >= 9000) return 3.2
-  if (amount >= 5000) return 2.4
-  if (amount >= 2500) return 1.8
-  return 1.2
+  if (amount >= 5000) return 2.6
+  if (amount >= 2500) return 2.0
+  return 1.4
 }
 
-export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }: Props) {
+export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false, demoActive = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const simRef = useRef<SimNode[]>([])
   const edgeRef = useRef<Array<{ edge: GraphEdge; si: number; ti: number }>>([])
@@ -83,7 +84,7 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
     const sim: SimNode[] = cappedNodes.map((n, i) => {
       const layerBias = n.type === 'sink' ? 0.85 : n.type === 'mule' ? 0.62 : n.type.includes('beneficiary') ? 0.45 : 0.2
       const xBase = W * layerBias
-      const ySpread = ((i * 31) % Math.max(80, H - 60)) + 30
+      const ySpread = ((i * 31) % Math.max(80, H - 100)) + 70
       return {
         id: n.id,
         type: n.type,
@@ -194,7 +195,7 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
           n.vx *= DAMPING
           n.vy *= DAMPING
           n.x = Math.max(14, Math.min(W - 14, n.x + n.vx))
-          n.y = Math.max(14, Math.min(H - 14, n.y + n.vy))
+          n.y = Math.max(70, Math.min(H - 14, n.y + n.vy))
         }
       }
 
@@ -202,15 +203,34 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
       const now = Date.now()
 
       // edges first
+      const sequenceStep = demoActive ? Math.floor((now % 6000) / 1000) : -1;
+      
       for (const row of eIdx) {
         const a = sim[row.si]
         const b = sim[row.ti]
         const e = row.edge
-        const color = edgeColorByRisk(e.risk_score ?? 0)
-        const width = edgeWidthByAmount(e.amount ?? 0)
+        
+        let color = edgeColorByRisk(e.risk_score ?? 0)
+        let width = edgeWidthByAmount(e.amount ?? 0)
+        let isHighlighted = false;
+        
+        if (demoActive) {
+           // Fake sequence replay
+           if (sequenceStep >= 1 && sequenceStep <= 2 && e.source.includes('victim') && e.target.includes('mule')) { isHighlighted = true; }
+           else if (sequenceStep >= 3 && sequenceStep <= 4 && e.source.includes('mule') && e.target.includes('sink')) { isHighlighted = true; }
+           
+           if (isHighlighted) {
+               color = '#a78bfa'; // violet glowing
+               width = width + 2;
+           } else {
+               color = '#3f3f46'; // dim the rest
+           }
+        }
+        
+        // drawEdge logic...
         drawArrow(a.x, a.y, b.x, b.y, color, width, !!e.suspicious_burst)
-        if (e.frozen_path || e.decision === 'freeze') {
-          ctx!.strokeStyle = 'rgba(239,68,68,0.24)'
+        if (e.frozen_path || e.decision === 'freeze' || isHighlighted) {
+          ctx!.strokeStyle = isHighlighted ? 'rgba(167,139,250,0.5)' : 'rgba(239,68,68,0.24)'
           ctx!.lineWidth = width + 4
           ctx!.beginPath()
           ctx!.moveTo(a.x, a.y)
@@ -234,9 +254,9 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
         }
         ctx!.beginPath()
         ctx!.arc(n.x, n.y, r, 0, Math.PI * 2)
-        ctx!.fillStyle = `${color}33`
+        ctx!.fillStyle = `${color}66`
         ctx!.fill()
-        ctx!.lineWidth = isSelected || isHovered ? 2.8 : 1.3
+        ctx!.lineWidth = isSelected || isHovered ? 2.8 : 1.5
         ctx!.strokeStyle = isSelected ? '#ffffff' : color
         ctx!.stroke()
       }
@@ -333,7 +353,7 @@ export function FraudGraphCanvas({ nodes, edges, height = 460, frozen = false }:
 
   return (
     <div className="relative w-full rounded-xl border border-zinc-800 bg-zinc-950 overflow-hidden">
-      <div className="absolute left-3 top-3 z-10 flex gap-2">
+      <div className="absolute right-3 top-3 z-10 flex gap-2">
         <span className="rounded-md border border-zinc-700 bg-zinc-900/90 px-2 py-0.5 text-[10px] text-zinc-400">
           {displayedNodes} nodes
         </span>

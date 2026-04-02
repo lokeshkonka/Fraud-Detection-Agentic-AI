@@ -79,9 +79,9 @@ export function KpiCard({ label, value, sub, accent = 'cyan', animate = true, de
   }
 
   return (
-    <Panel delay={delay}>
+    <Panel delay={delay} className="min-w-0">
       <p className="text-xs font-medium uppercase tracking-widest text-zinc-500">{label}</p>
-      <p className={`mt-3 text-3xl font-semibold tabular-nums ${ACCENT_CLS[accent]}`}>{display}</p>
+      <p className={`mt-2 text-2xl font-bold tabular-nums tracking-tight truncate ${ACCENT_CLS[accent]}`} title={display}>{display}</p>
       {sub && <p className="mt-1 text-xs text-zinc-500">{sub}</p>}
     </Panel>
   )

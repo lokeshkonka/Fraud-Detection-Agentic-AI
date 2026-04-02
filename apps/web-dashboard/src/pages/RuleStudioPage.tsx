@@ -59,12 +59,12 @@ export function RuleStudioPage({ apiBase }: RuleStudioPageProps) {
             <div className="space-y-3">
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
                 <p className="text-xs text-zinc-500">Risk Threshold</p>
-                <p className="mt-1 text-3xl font-bold text-cyan-200">{current.risk_threshold.toFixed(2)}</p>
+                <p className="mt-1 text-2xl font-bold text-cyan-200">{current.risk_threshold.toFixed(2)}</p>
                 <p className="mt-1 text-[10px] text-zinc-600">Transactions above this score are flagged</p>
               </div>
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
                 <p className="text-xs text-zinc-500">Velocity Limit</p>
-                <p className="mt-1 text-3xl font-bold text-cyan-200">{current.velocity_limit}</p>
+                <p className="mt-1 text-2xl font-bold text-cyan-200">{current.velocity_limit}</p>
                 <p className="mt-1 text-[10px] text-zinc-600">Max transactions per 5-minute window</p>
               </div>
               <div className="rounded-xl border border-zinc-800 bg-zinc-950/60 p-4">
