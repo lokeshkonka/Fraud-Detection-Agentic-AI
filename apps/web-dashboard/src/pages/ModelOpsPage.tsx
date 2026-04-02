@@ -54,18 +54,19 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
   const [rollbackState, execRollback] = usePost<{ status: string; champion_version: string }>(apiBase, '/model-ops/rollback')
   const [retrainState, execRetrain] = usePost<{ status: string; challenger_version: string }>(apiBase, '/model-ops/retrain-now')
   const [showRollbackModal, setShowRollbackModal] = useState(false)
-  const [liveCountdown, setLiveCountdown] = useState(0)
+  const [nowMs, setNowMs] = useState(0)
   const addToast = useToast()
 
   const busy = promoteState.status === 'pending' || rollbackState.status === 'pending' || retrainState.status === 'pending'
 
-  // Tick countdown every second
+  // Tick clock every second for derived countdown
   useEffect(() => {
-    const base = ops.data?.schedule?.countdown_seconds ?? 0
-    setLiveCountdown(base)
-    const timer = setInterval(() => setLiveCountdown((c) => Math.max(0, c - 1)), 1000)
+    const timer = setInterval(() => setNowMs(Date.now()), 1000)
     return () => clearInterval(timer)
-  }, [ops.data?.schedule?.countdown_seconds])
+  }, [])
+
+  const scheduleNextMs = ops.data?.schedule?.next_retrain_at ? new Date(ops.data.schedule.next_retrain_at).getTime() : null
+  const liveCountdown = scheduleNextMs ? Math.max(0, Math.floor((scheduleNextMs - nowMs) / 1000)) : 0
 
   async function act(action: 'promote' | 'rollback' | 'retrain') {
     if (action === 'promote') {
@@ -78,7 +79,6 @@ export function ModelOpsPage({ apiBase }: ModelOpsPageProps) {
        addToast('Rollback complete. System utilizing known-stable baseline.', 'success')
     } else {
        addToast('Initiating out-of-band retrain cycle...', 'info')
-       setLiveCountdown(0)
        await execRetrain()
        addToast('Retrain completed. Challenger PR-AUC updated.', 'success')
     }

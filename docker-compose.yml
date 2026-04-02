@@ -48,7 +48,7 @@ services:
       - "8500:8500"
     environment:
       DATABASE_URL: postgresql://fraud:fraud@postgres:5432/fraud
-      MODEL_VERSION: xgb_trained_external_v1
+      MODEL_VERSION: xgb.joblib
       CHALLENGER_VERSION: xgb_challenger_v3
     depends_on:
       postgres:

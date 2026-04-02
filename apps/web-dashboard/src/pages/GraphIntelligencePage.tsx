@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Panel } from '../components/ui/Panel'
 import { KpiCard } from '../components/ui/KpiCard'
 import { Spinner } from '../components/ui/Spinner'
@@ -84,8 +84,8 @@ export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
   const [signatureTab, setSignatureTab] = useState<SignatureTab>('Pattern')
   const [freezeBusy, setFreezeBusy] = useState<Record<string, boolean>>({})
 
-  const rings = network.data?.rings ?? []
-  const nodes = network.data?.nodes ?? []
+  const rings = useMemo(() => network.data?.rings ?? [], [network.data?.rings])
+  const nodes = useMemo(() => network.data?.nodes ?? [], [network.data?.nodes])
   const highRiskNodes = useMemo(() => nodes.filter((n) => n.risk >= 0.7).slice(0, 20), [nodes])
   const replaySteps = replay.data?.steps ?? []
 
@@ -145,7 +145,7 @@ export function GraphIntelligencePage({ apiBase }: GraphIntelligencePageProps) {
     if (replayIndex < 0) setReplayIndex(0)
   }
 
-  useMemo(() => {
+  useEffect(() => {
     if (replayState !== 'playing' || replaySteps.length === 0) return
     const timer = window.setTimeout(() => {
       setReplayIndex((i) => {

@@ -100,8 +100,8 @@ export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, r
       const H = canvas.height || height
       const sim = forceSimulation<SimNode>(data.simNodes)
         .force('charge', forceManyBody<SimNode>().strength(-55).distanceMin(18).distanceMax(300))
-        .force('collide', forceCollide<SimNode>().radius((d) => 9 + Math.min(9, (d.risk_score ?? d.risk ?? 0) * 10)).strength(0.9))
-        .force('link', forceLink<SimNode, SimLink>(data.simLinks).id((d) => d.id).distance(78).strength(0.08))
+        .force('collide', forceCollide<SimNode>().radius((d: SimNode) => 9 + Math.min(9, (d.risk_score ?? d.risk ?? 0) * 10)).strength(0.9))
+        .force('link', forceLink<SimNode, SimLink>(data.simLinks).id((d: SimNode) => d.id).distance(78).strength(0.08))
         .force('center', forceCenter(W / 2, H / 2))
         .alpha(0.95)
         .alphaDecay(0.045)

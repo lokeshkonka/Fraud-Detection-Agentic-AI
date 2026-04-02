@@ -67,7 +67,7 @@ Artifacts:
 
 ``` txt
 models/
-├── xgb_fraud_v1.json
+├── xgb.joblib
 ├── gnn_fraud_v1.pt
 ├── shap_explainer.pkl
 ├── thresholds.json
