@@ -303,7 +303,7 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
           {items.length === 0 && !flow.loading ? (
             <EmptyState message="Evaluate your first transaction to populate the stream." />
           ) : (
-            <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="space-y-1.5 max-h-125 overflow-y-auto pr-2 custom-scrollbar">
               {/* Header */}
               <div className="grid grid-cols-[1.5fr_1fr_auto_auto] gap-3 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500 border-b border-zinc-800/80 mb-2">
                 <span>Identity Hash</span>
@@ -318,7 +318,7 @@ export function TransactionFlowPage({ apiBase }: TransactionFlowPageProps) {
                 >
                   <div className="flex flex-col gap-0.5">
                     <p className="font-mono text-[11px] text-zinc-300 truncate w-32 group-hover:text-cyan-300 transition-colors">{item.transaction_id ?? 'unknown'}</p>
-                    <p className="text-[10px] text-zinc-500">{new Date(item.timestamp).toLocaleTimeString()}</p>
+                    <p className="text-[10px] text-zinc-500">{item.timestamp ? new Date(item.timestamp).toLocaleTimeString() : '—'}</p>
                   </div>
                   <div className="flex flex-col gap-0.5">
                      <p className="text-[11px] font-medium text-zinc-200">${item.amount.toFixed(2)}</p>

@@ -7,7 +7,6 @@ import { KpiCard } from '../components/ui/KpiCard'
 import { Panel } from '../components/ui/Panel'
 import { AnimatedBar } from '../components/ui/AnimatedBar'
 import { StatusDot } from '../components/ui/StatusDot'
-import { Spinner } from '../components/ui/Spinner'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
 import { SectionHeader } from '../components/ui/SectionHeader'
 import { useApi } from '../hooks/useApi'
@@ -102,7 +101,7 @@ export function DashboardPage({ apiBase }: DashboardPageProps) {
 
       {/* 2. FRAUD SPIKE KPIs */}
       {dash.loading ? (
-         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5 animate-[shimmer_2s_infinite] bg-[linear-gradient(to_right,#00000000,#ffffff0a,#00000000)] bg-[length:400%_100%] rounded-xl">
+         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5 animate-[shimmer_2s_infinite] bg-[linear-gradient(to_right,#00000000,#ffffff0a,#00000000)] bg-size-[400%_100%] rounded-xl">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="h-28 rounded-xl bg-zinc-900/50 border border-zinc-800/50" />
             ))}

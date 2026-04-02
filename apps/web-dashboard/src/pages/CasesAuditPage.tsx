@@ -7,6 +7,7 @@ import { Panel } from '../components/ui/Panel'
 import { Badge } from '../components/ui/Badge'
 import { Spinner } from '../components/ui/Spinner'
 import { ErrorBanner } from '../components/ui/ErrorBanner'
+import { EmptyState } from '../components/ui/EmptyState'
 import { SectionHeader } from '../components/ui/SectionHeader'
 import { ToastContainer } from '../components/ui/Toast'
 import { useToast } from '../hooks/useToast'
@@ -171,7 +172,7 @@ export function CasesAuditPage({ apiBase }: CasesAuditPageProps) {
                          <div className="flex items-center justify-center h-6 w-6 rounded-full bg-zinc-800 border border-zinc-700 text-[10px] font-bold text-zinc-300">
                            {c.owner === 'unassigned' ? '?' : c.owner.substring(0, 2).toUpperCase()}
                          </div>
-                         <span className="text-[10px] uppercase text-zinc-500 truncate max-w-[60px]">{c.owner}</span>
+                         <span className="text-[10px] uppercase text-zinc-500 truncate max-w-15">{c.owner}</span>
                       </div>
 
                       <div className="w-24 text-right">

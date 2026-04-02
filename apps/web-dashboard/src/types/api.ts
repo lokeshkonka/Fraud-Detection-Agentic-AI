@@ -107,6 +107,7 @@ export interface FeatureStat {
   feature: string
   mean: number
   variance: number
+  human_label?: string
 }
 
 export interface AccuracyPoint {
@@ -128,8 +129,24 @@ export interface DriftBaseline {
 export interface ModelInfo {
   champion: string
   challenger: string
-  pr_auc: number
-  roc_auc: number
+  champion_pr_auc: number
+  champion_roc_auc: number
+  challenger_pr_auc: number
+  challenger_roc_auc: number
+  champion_last_retrained: string | null
+  challenger_created_at: string | null
+}
+
+export interface BusinessMetrics {
+  fraud_catch_rate: number
+  queue_precision: number
+  model_health: 'healthy' | 'warning' | 'retrain_soon'
+  alerts_per_day: number
+  estimated_fraud_caught_daily: number
+  prevented_loss_estimate: number
+  freeze_success_rate: number
+  false_positive_rate: number
+  analyst_queue_size: number
 }
 
 export interface ModelLabResponse {
@@ -137,6 +154,16 @@ export interface ModelLabResponse {
   feature_stats: FeatureStat[]
   accuracy_curve: AccuracyPoint[]
   drift_baseline: DriftBaseline
+  business_metrics: BusinessMetrics
+  human_behavior: HumanBehaviorSnapshot
+}
+
+export interface HumanBehaviorSnapshot {
+  typical_transaction_size: string
+  common_velocity: string
+  sender_balance_movement: string
+  receiver_spike_behavior: string
+  anomaly_intensity: 'low' | 'moderate' | 'high'
 }
 
 export interface ExplainResponse {

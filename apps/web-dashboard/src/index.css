@@ -97,3 +97,27 @@ body {
   background: #52525b;
 }
 
+.ml-dashboard .ml-table th {
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+}
+
+.ml-dashboard .ml-table td {
+  font-size: 0.9rem;
+}
+
+.ml-dashboard button {
+  line-height: 1.25;
+}
+
+@media (max-width: 768px) {
+  .ml-dashboard {
+    gap: 1rem;
+  }
+
+  .ml-dashboard .ml-table th,
+  .ml-dashboard .ml-table td {
+    padding: 0.65rem;
+  }
+}
+
