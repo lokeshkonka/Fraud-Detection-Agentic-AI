@@ -21,8 +21,8 @@ interface SimNode extends GraphNode {
 }
 
 interface SimLink {
-  source: string
-  target: string
+  source: string | SimNode
+  target: string | SimNode
   amount: number
   edge: GraphEdge
 }
@@ -44,6 +44,11 @@ function edgeColorByRisk(risk: number): string {
   if (risk >= 0.75) return '#f97316'
   if (risk >= 0.55) return '#f59e0b'
   return '#52525b'
+}
+
+function resolveLinkNode(endpoint: string | SimNode, nodeById: Map<string, SimNode>): SimNode | undefined {
+  if (typeof endpoint === 'string') return nodeById.get(endpoint)
+  return endpoint
 }
 
 export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, replay = [], replayIndex = -1 }: Props) {
@@ -116,6 +121,7 @@ export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, r
       const render = () => {
         const ctx = canvas.getContext('2d')
         if (!ctx) return
+        const nodeById = new Map(data.simNodes.map((n) => [n.id, n]))
         const { x: tx, y: ty, k } = transformRef.current
         ctx.setTransform(1, 0, 0, 1, 0, 0)
         ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -125,8 +131,8 @@ export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, r
 
         const activeReplay = replayIndex >= 0 ? replay[replayIndex] : null
         for (const link of data.simLinks) {
-          const s = data.simNodes.find((n) => n.id === link.source)
-          const t = data.simNodes.find((n) => n.id === link.target)
+          const s = resolveLinkNode(link.source, nodeById)
+          const t = resolveLinkNode(link.target, nodeById)
           if (!s || !t) continue
           const replayHit = !!activeReplay && activeReplay.tx_id === link.edge.tx_id
           const dx = t.x - s.x
@@ -135,24 +141,28 @@ export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, r
           const ux = dx / len
           const uy = dy / len
           const targetNodeRadius = 7 + Math.min(9, ((t.risk_score ?? t.risk ?? 0) * 8))
-          const endX = t.x - ux * (targetNodeRadius + 2)
-          const endY = t.y - uy * (targetNodeRadius + 2)
+          const headLength = replayHit ? 10 : 8
+          const headWidth = replayHit ? 6 : 4.5
+          const tipX = t.x - ux * (targetNodeRadius + 2)
+          const tipY = t.y - uy * (targetNodeRadius + 2)
+          const shaftEndX = tipX - ux * headLength
+          const shaftEndY = tipY - uy * headLength
 
           ctx.beginPath()
           ctx.moveTo(s.x, s.y)
-          ctx.lineTo(endX, endY)
+          ctx.lineTo(shaftEndX, shaftEndY)
           ctx.strokeStyle = replayHit ? '#a78bfa' : edgeColorByRisk(link.edge.risk_score ?? 0)
           ctx.lineWidth = replayHit ? 4 : 1.5
           ctx.globalAlpha = replayHit ? 0.95 : 0.78
+          ctx.lineCap = 'round'
           ctx.stroke()
 
-          const headSize = replayHit ? 8 : 6
-          const leftX = endX - ux * headSize - uy * (headSize * 0.55)
-          const leftY = endY - uy * headSize + ux * (headSize * 0.55)
-          const rightX = endX - ux * headSize + uy * (headSize * 0.55)
-          const rightY = endY - uy * headSize - ux * (headSize * 0.55)
+          const leftX = shaftEndX - uy * headWidth
+          const leftY = shaftEndY + ux * headWidth
+          const rightX = shaftEndX + uy * headWidth
+          const rightY = shaftEndY - ux * headWidth
           ctx.beginPath()
-          ctx.moveTo(endX, endY)
+          ctx.moveTo(tipX, tipY)
           ctx.lineTo(leftX, leftY)
           ctx.lineTo(rightX, rightY)
           ctx.closePath()
@@ -164,7 +174,7 @@ export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, r
             ctx.lineWidth = 8
             ctx.beginPath()
             ctx.moveTo(s.x, s.y)
-            ctx.lineTo(endX, endY)
+            ctx.lineTo(tipX, tipY)
             ctx.stroke()
           }
         }
@@ -235,9 +245,10 @@ export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, r
   function nearestEdge(wx: number, wy: number): GraphEdge | null {
     let best: GraphEdge | null = null
     let bestD = 8
+    const nodeById = new Map(data.simNodes.map((n) => [n.id, n]))
     for (const link of data.simLinks) {
-      const s = data.simNodes.find((n) => n.id === link.source)
-      const t = data.simNodes.find((n) => n.id === link.target)
+      const s = resolveLinkNode(link.source, nodeById)
+      const t = resolveLinkNode(link.target, nodeById)
       if (!s || !t) continue
       const dx = t.x - s.x
       const dy = t.y - s.y

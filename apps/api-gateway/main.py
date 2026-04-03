@@ -192,6 +192,461 @@ class CaseAttachmentInput(BaseModel):
     payload: str = ""
 
 
+class FeatureMatrixRow(BaseModel):
+    id: str
+    feature: str
+    traditional_system: str
+    ai_system: str
+    verdict: Literal["Wrong", "Partial", "Right"]
+    why_traditional_fails: str
+    how_ai_solves: str
+    ml_features: List[str]
+    backend_service: str
+    api_routes: List[str]
+    ui_workflow: str
+    related_artifacts: List[str]
+    mermaid_mini_flow: str
+
+
+class DocsResearchFeatureMatrixResponse(BaseModel):
+    generated_at: str
+    rows: List[FeatureMatrixRow]
+
+
+class DocsResearchOverviewResponse(BaseModel):
+    generated_at: str
+    service_health: Dict[str, Any]
+    routes: List[str]
+    model_lab: Dict[str, Any]
+    model_ops: Dict[str, Any]
+    graph_overview: Dict[str, Any]
+    graph_network_sample: Dict[str, Any]
+    replay: Dict[str, Any]
+    rules: Dict[str, Any]
+    cases: Dict[str, Any]
+    audits: Dict[str, Any]
+    archetypes: List[Dict[str, Any]]
+    feature_matrix: List[FeatureMatrixRow]
+
+
+def _route_set() -> set[str]:
+    return {r.path for r in app.routes}
+
+
+def _rules_snapshot() -> Dict[str, Any]:
+    db: Connection = app.state.db
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+              risk_threshold, velocity_limit, high_risk_channels,
+              balance_delta_org_threshold, balance_delta_dest_threshold, amount_log_threshold,
+              amount_to_org_balance_ratio_threshold, amount_to_dest_balance_ratio_threshold,
+              queue_risk_score_threshold, drift_alert_signal_threshold, mule_cluster_density_threshold,
+              repeated_beneficiary_anomaly_threshold, expression_mode, confidence_weight,
+              override_ml_score, shadow_mode, analyst_approval_required, updated_at
+            FROM rules_config WHERE id=1
+            """
+        )
+        row = cur.fetchone()
+    return row or {}
+
+
+def _flow(kind: str) -> str:
+    flows = {
+        "ml": "flowchart LR; T[Transaction] --> F[Features]; F --> R[Rule Fusion]; R --> M[XGBoost]; M --> Q[Queue]",
+        "graph": "flowchart LR; T[Tx] --> G[Graph Sync]; G --> C[Cluster Intel]; C --> A[Action]",
+        "case": "flowchart LR; S[Score] --> H{Hold/Freeze}; H --> C[Case]; C --> U[Analyst]; U --> L[Audit]",
+    }
+    return flows.get(kind, "flowchart LR; A[Input] --> B[Detection] --> C[Decision]")
+
+
+def _build_feature_matrix(
+    routes: set[str],
+    model_lab: Dict[str, Any],
+    model_ops: Dict[str, Any],
+    graph_overview: Dict[str, Any],
+    replay: Dict[str, Any],
+    rules: Dict[str, Any],
+    cases: Dict[str, Any],
+    audits: Dict[str, Any],
+    archetypes: List[Dict[str, Any]],
+) -> List[FeatureMatrixRow]:
+    rows: List[FeatureMatrixRow] = []
+
+    def add_row(*, supported: bool, **kwargs: Any) -> None:
+        if supported:
+            rows.append(FeatureMatrixRow(**kwargs))
+
+    has_accuracy_curve = bool(model_lab.get("accuracy_curve"))
+    has_model_metrics = bool(model_lab.get("model"))
+    has_business_metrics = bool(model_lab.get("business_metrics"))
+    has_replay_steps = bool(replay.get("steps"))
+    has_rings_signal = int(graph_overview.get("mule_ring_signals", 0)) > 0
+    has_case_items = bool(cases.get("items"))
+    has_audits = bool(audits.get("items"))
+    has_archetypes = bool(archetypes)
+
+    add_row(
+        supported="/rule-studio/rules" in routes,
+        id="static-threshold-rules",
+        feature="Static threshold rules",
+        traditional_system="Hardcoded threshold checks",
+        ai_system="Runtime rule thresholds from rule-studio configuration",
+        verdict="Partial",
+        why_traditional_fails="Static rules alone decay as fraud patterns shift.",
+        how_ai_solves="Thresholds are centrally managed and combined with model score.",
+        ml_features=["risk_threshold", "velocity_limit", "high_risk_channels"],
+        backend_service="api-gateway + ml-inference",
+        api_routes=["/rule-studio/rules", "/rule-studio/rules/evaluate", "/score"],
+        ui_workflow="Rule Studio -> evaluate -> live scoring",
+        related_artifacts=["rules_config (PostgreSQL)"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported="confidence_weight" in rules and "expression_mode" in rules,
+        id="dynamic-rule-weighting",
+        feature="Dynamic rule weighting",
+        traditional_system="Equal or fixed rule treatment",
+        ai_system="Weighted rule confidence and expression mode controls",
+        verdict="Right",
+        why_traditional_fails="Fixed weighting cannot adapt to channel or drift context.",
+        how_ai_solves="Confidence weighting and rule composition are configurable at runtime.",
+        ml_features=["confidence_weight", "expression_mode", "override_ml_score"],
+        backend_service="api-gateway",
+        api_routes=["/rule-studio/rules", "/rule-studio/rules/evaluate"],
+        ui_workflow="Rule Studio weighted controls",
+        related_artifacts=["rules_config (PostgreSQL)"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported="/score" in routes,
+        id="realtime-ml-scoring",
+        feature="Real-time ML scoring",
+        traditional_system="Batch/manual scoring windows",
+        ai_system="Live risk scoring per transaction request",
+        verdict="Right",
+        why_traditional_fails="Delayed scoring misses rapid fraud bursts.",
+        how_ai_solves="Gateway proxies score requests to inference with decision banding.",
+        ml_features=["rule_score", "model_score", "final score"],
+        backend_service="ml-inference",
+        api_routes=["/score", "/batch-score"],
+        ui_workflow="Transaction Flow + Dashboard",
+        related_artifacts=["model_weights", "xgb.joblib"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported=has_model_metrics and has_accuracy_curve,
+        id="roc-pr-validation",
+        feature="ROC / PR validation",
+        traditional_system="No consistent model-quality validation",
+        ai_system="Champion/challenger PR and ROC plus queue curves",
+        verdict="Right",
+        why_traditional_fails="Rule systems rarely expose calibrated model discrimination metrics.",
+        how_ai_solves="Model lab exposes PR-AUC/ROC-AUC with cumulative accuracy curves.",
+        ml_features=["champion_pr_auc", "champion_roc_auc", "accuracy_curve"],
+        backend_service="ml-inference",
+        api_routes=["/model-lab/overview"],
+        ui_workflow="Model Lab and Model Ops",
+        related_artifacts=["artifacts/model_eval/model_eval_summary.csv", "artifacts/model_eval/*_queue_curves.csv"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported=has_business_metrics,
+        id="fraud-capture-intelligence",
+        feature="Fraud capture intelligence",
+        traditional_system="Case volume without calibrated capture metrics",
+        ai_system="Fraud catch and queue precision metrics in model lab",
+        verdict="Right",
+        why_traditional_fails="Analysts cannot optimize queue depth without capture curves.",
+        how_ai_solves="Business metrics and queue curves provide operational cutoffs.",
+        ml_features=["fraud_catch_rate", "queue_precision", "accuracy_curve"],
+        backend_service="ml-inference",
+        api_routes=["/model-lab/overview"],
+        ui_workflow="Model Lab -> Fraud Review Efficiency",
+        related_artifacts=["artifacts/model_eval/fraud_ops_metrics.csv"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported=has_business_metrics and "/cases-audit/queue/stream" in routes,
+        id="analyst-queue-gain",
+        feature="Analyst queue gain",
+        traditional_system="FIFO/manual queue ordering",
+        ai_system="Risk-prioritized queue stream with model precision support",
+        verdict="Right",
+        why_traditional_fails="FIFO queues waste analyst time on low-value alerts.",
+        how_ai_solves="Queue priority and precision metrics support high-yield triage.",
+        ml_features=["queue_precision", "queue_risk_score_threshold"],
+        backend_service="api-gateway + audit-service",
+        api_routes=["/cases-audit/queue/stream", "/cases-audit/list"],
+        ui_workflow="Cases & Audit queue panel",
+        related_artifacts=["artifacts/model_eval/fraud_ops_metrics.csv"],
+        mermaid_mini_flow=_flow("case"),
+    )
+
+    add_row(
+        supported=bool(model_lab.get("drift_baseline")) and bool(model_ops.get("drift")),
+        id="drift-monitoring",
+        feature="Drift monitoring PSI / shift",
+        traditional_system="Reactive drift checks",
+        ai_system="Live PSI with mean/variance shift baselines",
+        verdict="Right",
+        why_traditional_fails="Manual drift checks lag population movement.",
+        how_ai_solves="Inference baseline plus scheduler drift state are continuously exposed.",
+        ml_features=["psi", "mean_shift_score", "variance_shift_score"],
+        backend_service="ml-inference + ml-retrain-scheduler",
+        api_routes=["/model-lab/overview", "/model-ops/overview"],
+        ui_workflow="Model Lab + Model Ops drift cards",
+        related_artifacts=["artifacts/drift/drift_baseline.json", "artifacts/drift/drift_report_v2.json"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported="/explain" in routes,
+        id="shap-explainability",
+        feature="SHAP-style explainability",
+        traditional_system="Sparse reason tags",
+        ai_system="Feature contribution explanation endpoint",
+        verdict="Right",
+        why_traditional_fails="Opaque scoring blocks analyst trust and model governance.",
+        how_ai_solves="Contribution vector is produced per scored transaction.",
+        ml_features=["feature contributions", "rule/model decomposition"],
+        backend_service="ml-inference",
+        api_routes=["/explain"],
+        ui_workflow="Cases & Audit explanation preview",
+        related_artifacts=["artifacts/shap/analyst_explanations.csv", "artifacts/shap/skew_stats.csv"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported=bool(model_ops.get("champion")) and "/model-ops/promote" in routes and "/model-ops/rollback" in routes,
+        id="challenger-champion-rollout",
+        feature="Challenger vs champion rollout",
+        traditional_system="Single fixed model with risky cutovers",
+        ai_system="Controlled challenger promotion and rollback",
+        verdict="Right",
+        why_traditional_fails="Without rollback controls, bad promotions amplify risk.",
+        how_ai_solves="Promote/rollback/retrain APIs expose safe model lifecycle operations.",
+        ml_features=["champion version", "challenger version", "pr_auc delta"],
+        backend_service="ml-retrain-scheduler",
+        api_routes=["/model-ops/overview", "/model-ops/promote", "/model-ops/rollback", "/model-ops/retrain-now"],
+        ui_workflow="Model Ops operations control",
+        related_artifacts=["artifacts/model_eval/champion_challenger_comparison.csv", "artifacts/model_eval/promotion_decision.json"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported="amount_to_org_balance_ratio_threshold" in rules and "amount_to_dest_balance_ratio_threshold" in rules,
+        id="safe-denominator-ratio",
+        feature="Safe denominator ratio handling",
+        traditional_system="Single amount threshold without balance context",
+        ai_system="Origin/destination balance ratio thresholds in rule engine",
+        verdict="Right",
+        why_traditional_fails="Raw amount thresholds miss account-context anomalies.",
+        how_ai_solves="Balance-normalized ratios are first-class rule controls.",
+        ml_features=["amount_to_org_balance_ratio", "amount_to_dest_balance_ratio"],
+        backend_service="api-gateway rule engine",
+        api_routes=["/rule-studio/rules", "/rule-studio/rules/evaluate"],
+        ui_workflow="Rule Studio advanced ratios",
+        related_artifacts=["artifacts/pipeline/run_summary_v2.json"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported="/graph-intelligence/network" in routes and has_rings_signal,
+        id="mule-cluster-detection",
+        feature="Mule cluster graph detection",
+        traditional_system="Flat account lists without graph topology",
+        ai_system="Rings and high-risk node graph intelligence",
+        verdict="Right",
+        why_traditional_fails="Entity links are invisible in threshold-only systems.",
+        how_ai_solves="Graph service derives nodes, edges, and ring structures from flows.",
+        ml_features=["ring risk", "node risk_score", "linked_cases"],
+        backend_service="graph-service",
+        api_routes=["/graph-intelligence/network", "/graph-intelligence/overview"],
+        ui_workflow="Graph Intelligence canvas and ring panel",
+        related_artifacts=["transactions table", "graph_nodes", "graph_edges"],
+        mermaid_mini_flow=_flow("graph"),
+    )
+
+    add_row(
+        supported="/graph-intelligence/clusters/{cluster_id}/action" in routes,
+        id="coordinated-ring-expansion",
+        feature="Coordinated ring expansion",
+        traditional_system="Manual entity chasing",
+        ai_system="Cluster actions for expansion/isolation/inbound/outbound tracing",
+        verdict="Right",
+        why_traditional_fails="Manual graph traversal is slow under active fraud attack.",
+        how_ai_solves="One-click cluster actions call graph service workflows.",
+        ml_features=["cluster_id", "linked_accounts", "updated_nodes"],
+        backend_service="graph-service",
+        api_routes=["/graph-intelligence/clusters/{cluster_id}/action"],
+        ui_workflow="Graph Intelligence cluster action cards",
+        related_artifacts=["graph rings response"],
+        mermaid_mini_flow=_flow("graph"),
+    )
+
+    add_row(
+        supported="/graph-intelligence/clusters/{cluster_id}/action" in routes,
+        id="graph-risk-propagation",
+        feature="Graph risk propagation",
+        traditional_system="No network-level risk spread model",
+        ai_system="Cluster action returns propagated risk map",
+        verdict="Right",
+        why_traditional_fails="Single-entity scoring ignores contagion across neighbors.",
+        how_ai_solves="Risk propagation map is generated for cluster-linked entities.",
+        ml_features=["propagated_risk", "ring risk"],
+        backend_service="graph-service",
+        api_routes=["/graph-intelligence/clusters/{cluster_id}/action"],
+        ui_workflow="Graph Intelligence risk operations",
+        related_artifacts=["graph cluster action payload"],
+        mermaid_mini_flow=_flow("graph"),
+    )
+
+    add_row(
+        supported="/graph-intelligence/replay-path" in routes and has_replay_steps,
+        id="suspicious-path-replay",
+        feature="Suspicious path replay",
+        traditional_system="Static snapshots without transaction sequence",
+        ai_system="Time-ordered replay path with cumulative amount",
+        verdict="Right",
+        why_traditional_fails="Static snapshots hide sequence-level laundering behavior.",
+        how_ai_solves="Replay endpoint emits ordered path steps for canvas animation.",
+        ml_features=["risk_score timeline", "cumulative_amount"],
+        backend_service="graph-service",
+        api_routes=["/graph-intelligence/replay-path"],
+        ui_workflow="Graph Intelligence replay controls",
+        related_artifacts=["graph replay timeline"],
+        mermaid_mini_flow=_flow("graph"),
+    )
+
+    add_row(
+        supported="/threat-entities/{entity_id}/freeze" in routes and "/cases-audit/cases/{case_id}/actions" in routes,
+        id="freeze-workflows",
+        feature="Freeze workflows",
+        traditional_system="Manual freeze request chains",
+        ai_system="Entity freeze + case creation + audit logging workflow",
+        verdict="Right",
+        why_traditional_fails="Manual freeze handoffs increase fraud escape window.",
+        how_ai_solves="Freeze APIs trigger graph state updates and compliance records.",
+        ml_features=["decision band", "entity risk"],
+        backend_service="api-gateway + graph-service + audit-service",
+        api_routes=["/threat-entities/{entity_id}/freeze", "/cases-audit/cases/{case_id}/actions"],
+        ui_workflow="Graph Intelligence threat entity actions",
+        related_artifacts=["case_events", "audits"],
+        mermaid_mini_flow=_flow("case"),
+    )
+
+    add_row(
+        supported="/score" in routes and has_case_items,
+        id="auto-case-generation",
+        feature="Auto case generation",
+        traditional_system="Analyst-created cases after delay",
+        ai_system="Automatic upsert of hold/freeze decisions into case queue",
+        verdict="Right",
+        why_traditional_fails="Delayed case creation weakens response SLAs.",
+        how_ai_solves="Score path auto-opens case records for risky decisions.",
+        ml_features=["decision", "score", "severity mapping"],
+        backend_service="api-gateway + audit-service",
+        api_routes=["/score", "/cases-audit/list"],
+        ui_workflow="Cases & Audit queue auto-population",
+        related_artifacts=["cases table"],
+        mermaid_mini_flow=_flow("case"),
+    )
+
+    add_row(
+        supported="/cases-audit/queue/stream" in routes,
+        id="sla-queue-routing",
+        feature="SLA queue routing",
+        traditional_system="Unranked manual backlog",
+        ai_system="Derived queue priority stream for case ordering",
+        verdict="Right",
+        why_traditional_fails="No priority scoring means critical cases wait.",
+        how_ai_solves="Queue stream computes priority score by severity and position.",
+        ml_features=["queue_priority_score", "severity weight"],
+        backend_service="api-gateway",
+        api_routes=["/cases-audit/queue/stream"],
+        ui_workflow="Cases queue SLA display",
+        related_artifacts=["cases table"],
+        mermaid_mini_flow=_flow("case"),
+    )
+
+    add_row(
+        supported="/cases-audit/audits" in routes and has_audits,
+        id="immutable-audit-logging",
+        feature="Immutable audit logging",
+        traditional_system="Inconsistent manual logs",
+        ai_system="Centralized append-only audit records with export",
+        verdict="Right",
+        why_traditional_fails="Manual evidence trails fail compliance audits.",
+        how_ai_solves="All sensitive actions are captured and exportable through gateway.",
+        ml_features=["actor/action/target timeline"],
+        backend_service="audit-service",
+        api_routes=["/cases-audit/audits", "/cases-audit/audits/export"],
+        ui_workflow="Cases & Audit timeline",
+        related_artifacts=["audits table", "audit_export.csv"],
+        mermaid_mini_flow=_flow("case"),
+    )
+
+    add_row(
+        supported="/rule-studio/rules/evaluate" in routes,
+        id="rule-simulation-studio",
+        feature="Rule simulation studio",
+        traditional_system="Rule edits through ad-hoc scripts",
+        ai_system="Versioned rule evaluation endpoint with persistence",
+        verdict="Right",
+        why_traditional_fails="Script-based edits lack controlled review workflow.",
+        how_ai_solves="Rule studio API validates and persists threshold/rule changes.",
+        ml_features=["risk_threshold", "velocity_limit", "shadow_mode"],
+        backend_service="api-gateway",
+        api_routes=["/rule-studio/rules", "/rule-studio/rules/evaluate"],
+        ui_workflow="Rule Studio",
+        related_artifacts=["rules_config table"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    add_row(
+        supported=("/cases-audit/audits" in routes and "/model-ops/overview" in routes and has_audits),
+        id="governance-readiness",
+        feature="Governance readiness",
+        traditional_system="Fragmented evidence across teams",
+        ai_system="Linked model ops, case actions, and audit evidence trails",
+        verdict="Right",
+        why_traditional_fails="Governance review becomes manual and error-prone.",
+        how_ai_solves="Model lifecycle and case controls are observable from one API surface.",
+        ml_features=["model versions", "promotion history", "audit events"],
+        backend_service="api-gateway + audit-service + scheduler",
+        api_routes=["/model-ops/overview", "/cases-audit/audits", "/cases-audit/list"],
+        ui_workflow="Model Ops + Cases & Audit",
+        related_artifacts=["retrain_history", "artifacts list", "audit exports"],
+        mermaid_mini_flow=_flow("case"),
+    )
+
+    add_row(
+        supported=has_archetypes and bool(model_ops.get("history")),
+        id="historical-fraud-signature-memory",
+        feature="Historical fraud signature memory",
+        traditional_system="No reusable memory of prior attack shapes",
+        ai_system="Archetype catalog plus retrain history for recurring fraud patterns",
+        verdict="Partial",
+        why_traditional_fails="Institutional memory is lost across incidents.",
+        how_ai_solves="Fraud archetypes and model history keep prior attack context accessible.",
+        ml_features=["archetypes", "retrain history", "drift baseline"],
+        backend_service="simulation-engine + scheduler",
+        api_routes=["/simulation/archetypes/detail", "/model-ops/overview"],
+        ui_workflow="Simulation Lab + Model Ops",
+        related_artifacts=["fraud_archetypes table", "retrain_history table"],
+        mermaid_mini_flow=_flow("ml"),
+    )
+
+    return rows
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.http_client = httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SEC)
@@ -343,6 +798,82 @@ async def health() -> GatewayHealthResponse:
 @app.get("/routes", response_model=RoutesResponse)
 async def routes() -> RoutesResponse:
     return RoutesResponse(routes=[r.path for r in app.routes])
+
+
+@app.get("/docs-research/feature-matrix", response_model=DocsResearchFeatureMatrixResponse)
+async def docs_research_feature_matrix() -> DocsResearchFeatureMatrixResponse:
+    route_set = _route_set()
+    model_lab = await safe_get_json(f"{ML_INFERENCE_URL}/model-lab/overview", {})
+    model_ops = await safe_get_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/overview", {})
+    graph_overview = await safe_get_json(f"{GRAPH_SERVICE_URL}/overview", {})
+    replay = await safe_get_json(f"{GRAPH_SERVICE_URL}/replay-path?seed=demo_victim_01&limit=10", {})
+    cases = await safe_get_json(f"{AUDIT_SERVICE_URL}/cases?limit=40&offset=0", {"items": []})
+    audits = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits?limit=60&offset=0", {"items": []})
+    archetypes = await safe_get_json(f"{SIMULATION_ENGINE_URL}/archetypes/detail", [])
+    rules = _rules_snapshot()
+
+    rows = _build_feature_matrix(
+        routes=route_set,
+        model_lab=model_lab if isinstance(model_lab, dict) else {},
+        model_ops=model_ops if isinstance(model_ops, dict) else {},
+        graph_overview=graph_overview if isinstance(graph_overview, dict) else {},
+        replay=replay if isinstance(replay, dict) else {},
+        rules=rules,
+        cases=cases if isinstance(cases, dict) else {"items": []},
+        audits=audits if isinstance(audits, dict) else {"items": []},
+        archetypes=archetypes if isinstance(archetypes, list) else [],
+    )
+    return DocsResearchFeatureMatrixResponse(
+        generated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        rows=rows,
+    )
+
+
+@app.get("/docs-research/overview", response_model=DocsResearchOverviewResponse)
+async def docs_research_overview() -> DocsResearchOverviewResponse:
+    route_set = _route_set()
+    model_lab = await safe_get_json(f"{ML_INFERENCE_URL}/model-lab/overview", {})
+    model_ops = await safe_get_json(f"{ML_RETRAIN_SCHEDULER_URL}/model-ops/overview", {})
+    graph_overview = await safe_get_json(f"{GRAPH_SERVICE_URL}/overview", {})
+    graph_network = {
+        "nodes": await safe_get_json(f"{GRAPH_SERVICE_URL}/nodes?limit=80", []),
+        "edges": await safe_get_json(f"{GRAPH_SERVICE_URL}/edges?limit=120", []),
+        "rings": (await safe_get_json(f"{GRAPH_SERVICE_URL}/rings", {"rings": []})).get("rings", []),
+    }
+    replay = await safe_get_json(f"{GRAPH_SERVICE_URL}/replay-path?seed=demo_victim_01&limit=20", {})
+    cases = await safe_get_json(f"{AUDIT_SERVICE_URL}/cases?limit=80&offset=0", {"items": []})
+    audits = await safe_get_json(f"{AUDIT_SERVICE_URL}/audits?limit=120&offset=0", {"items": []})
+    archetypes = await safe_get_json(f"{SIMULATION_ENGINE_URL}/archetypes/detail", [])
+    service_health = await health()
+    rules = _rules_snapshot()
+
+    rows = _build_feature_matrix(
+        routes=route_set,
+        model_lab=model_lab if isinstance(model_lab, dict) else {},
+        model_ops=model_ops if isinstance(model_ops, dict) else {},
+        graph_overview=graph_overview if isinstance(graph_overview, dict) else {},
+        replay=replay if isinstance(replay, dict) else {},
+        rules=rules,
+        cases=cases if isinstance(cases, dict) else {"items": []},
+        audits=audits if isinstance(audits, dict) else {"items": []},
+        archetypes=archetypes if isinstance(archetypes, list) else [],
+    )
+
+    return DocsResearchOverviewResponse(
+        generated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        service_health=service_health.model_dump(),
+        routes=sorted(route_set),
+        model_lab=model_lab if isinstance(model_lab, dict) else {},
+        model_ops=model_ops if isinstance(model_ops, dict) else {},
+        graph_overview=graph_overview if isinstance(graph_overview, dict) else {},
+        graph_network_sample=graph_network,
+        replay=replay if isinstance(replay, dict) else {},
+        rules=rules,
+        cases=cases if isinstance(cases, dict) else {"items": []},
+        audits=audits if isinstance(audits, dict) else {"items": []},
+        archetypes=archetypes if isinstance(archetypes, list) else [],
+        feature_matrix=rows,
+    )
 
 
 @app.post("/score", response_model=ScoreResponse)

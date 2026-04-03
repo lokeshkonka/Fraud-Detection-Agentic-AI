@@ -16,6 +16,7 @@ import { ModelOpsPage } from './pages/ModelOpsPage'
 import { CasesAuditPage } from './pages/CasesAuditPage'
 import { RuleStudioPage } from './pages/RuleStudioPage'
 import { DocsPage } from './pages/DocsPage'
+import { DocsResearchPage } from './pages/DocsResearchPage'
 import type { GatewayHealthResponse } from './types/api'
 
 const VALID_ROUTES: RouteKey[] = [
@@ -28,11 +29,26 @@ const VALID_ROUTES: RouteKey[] = [
   '/cases-audit',
   '/rule-studio',
   '/docs',
+  '/docs-research',
 ]
 
 function hashRoute(): RouteKey {
-  const h = window.location.hash.replace('#', '') as RouteKey
-  return VALID_ROUTES.includes(h) ? h : '/dashboard'
+  const normalize = (raw: string): RouteKey | null => {
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    const withoutHash = trimmed.replace(/^#/, '')
+    const normalized = withoutHash.startsWith('/') ? withoutHash : `/${withoutHash}`
+    const noTrailingSlash = normalized.length > 1 ? normalized.replace(/\/+$/, '') : normalized
+    return VALID_ROUTES.includes(noTrailingSlash as RouteKey) ? (noTrailingSlash as RouteKey) : null
+  }
+
+  const fromHash = normalize(window.location.hash)
+  if (fromHash) return fromHash
+
+  const fromPath = normalize(window.location.pathname)
+  if (fromPath) return fromPath
+
+  return '/dashboard'
 }
 
 function App() {
@@ -55,6 +71,10 @@ function App() {
   function handleRefreshAll() {
     void refreshHealth()
     // Each page manages its own data — this just refreshes the health bar.
+  }
+
+  if (route === '/docs-research') {
+    return <DocsResearchPage apiBase={apiBase} />
   }
 
   return (

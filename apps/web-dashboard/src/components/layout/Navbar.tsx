@@ -12,6 +12,7 @@ export type RouteKey =
   | '/cases-audit'
   | '/rule-studio'
   | '/docs'
+  | '/docs-research'
 
 interface NavItem {
   route: RouteKey
@@ -29,6 +30,7 @@ const NAV_ITEMS: NavItem[] = [
   { route: '/cases-audit',        label: 'Cases & Audit',     icon: '⊟' },
   { route: '/rule-studio',        label: 'Rule Studio',       icon: '⊛' },
   { route: '/docs',               label: 'Docs',              icon: '☰' },
+  { route: '/docs-research',      label: 'Docs Research',     icon: '◫' },
 ]
 
 interface NavbarProps {

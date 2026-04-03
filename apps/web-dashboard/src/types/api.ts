@@ -421,3 +421,58 @@ export interface CaseCommentRecord {
   message: string
   created_at: string
 }
+
+// ── Docs Research ────────────────────────────────────────────────────────────
+
+export type MatrixVerdict = 'Wrong' | 'Partial' | 'Right'
+
+export interface DocsResearchFeatureMatrixRow {
+  id: string
+  feature: string
+  traditional_system: string
+  ai_system: string
+  verdict: MatrixVerdict
+  why_traditional_fails: string
+  how_ai_solves: string
+  ml_features: string[]
+  backend_service: string
+  api_routes: string[]
+  ui_workflow: string
+  related_artifacts: string[]
+  mermaid_mini_flow: string
+}
+
+export interface DocsResearchFeatureMatrixResponse {
+  generated_at: string
+  rows: DocsResearchFeatureMatrixRow[]
+}
+
+export interface DocsResearchOverviewResponse {
+  generated_at: string
+  service_health: GatewayHealthResponse
+  routes: string[]
+  model_lab: Record<string, unknown>
+  model_ops: Record<string, unknown>
+  graph_overview: GraphOverviewResponse
+  graph_network_sample: {
+    nodes: GraphNode[]
+    edges: GraphEdge[]
+    rings: RingInfo[]
+  }
+  replay: ReplayTimelineResponse
+  rules: Record<string, unknown>
+  cases: {
+    items: CaseRecord[]
+    total?: number
+    limit?: number
+    offset?: number
+  }
+  audits: {
+    items: AuditRecord[]
+    total?: number
+    limit?: number
+    offset?: number
+  }
+  archetypes: ArchetypeInfo[]
+  feature_matrix: DocsResearchFeatureMatrixRow[]
+}
