@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import mermaid from 'mermaid'
 import { Code2, Copy, Play, ZoomIn, ZoomOut } from 'lucide-react'
 
@@ -51,7 +51,7 @@ export function MermaidCodeCanvas({
   const [error, setError] = useState<string | null>(null)
   const [showSource, setShowSource] = useState(false)
   const [zoom, setZoom] = useState(100)
-  const renderPrefixRef = useRef(`mermaid-${Math.random().toString(36).slice(2)}`)
+  const renderPrefix = useId().replace(/:/g, '')
   const renderSeqRef = useRef(0)
 
   useEffect(() => {
@@ -64,7 +64,7 @@ export function MermaidCodeCanvas({
       try {
         mermaidInit()
         renderSeqRef.current += 1
-        const renderId = `${renderPrefixRef.current}-${renderSeqRef.current}`
+        const renderId = `mermaid-${renderPrefix}-${renderSeqRef.current}`
         const { svg: rendered } = await mermaid.render(renderId, code)
         if (!active) return
         setSvg(rendered)
@@ -78,7 +78,7 @@ export function MermaidCodeCanvas({
     return () => {
       active = false
     }
-  }, [code])
+  }, [code, renderPrefix])
 
   async function copyCode() {
     await navigator.clipboard.writeText(code)
@@ -165,4 +165,3 @@ export function MermaidCodeCanvas({
     </section>
   )
 }
-

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { BookMarked, FileDown, CheckCircle2, XCircle, AlertCircle } from 'lucide-react'
 import { useApi } from '../hooks/useApi'
 import { MermaidCodeCanvas } from '../components/ui/MermaidCodeCanvas'
@@ -102,7 +102,6 @@ export function DocsResearchPage({ apiBase }: DocsResearchPageProps) {
   const [overview] = useApi<DocsResearchOverviewResponse>(apiBase, '/docs-research/overview')
   const [progress, setProgress] = useState(0)
   const [activeId, setActiveId] = useState('')
-  const sectionRefs = useRef<Record<string, HTMLElement>>({})
 
   /* ── progress bar ────────────────────────────────────────── */
   useEffect(() => {
@@ -135,7 +134,7 @@ export function DocsResearchPage({ apiBase }: DocsResearchPageProps) {
   const modelLab   = (data?.model_lab ?? {}) as Record<string, unknown>
   const model      = (modelLab.model   ?? {}) as Record<string, unknown>
   const graphOv    = data?.graph_overview
-  const matrixRows = data?.feature_matrix ?? []
+  const matrixRows = useMemo(() => data?.feature_matrix ?? [], [data?.feature_matrix])
   const archetypes = data?.archetypes ?? []
 
   const coreRows = useMemo(() => [

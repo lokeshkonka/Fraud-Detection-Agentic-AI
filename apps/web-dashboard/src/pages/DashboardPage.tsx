@@ -44,7 +44,7 @@ export function DashboardPage({ apiBase }: DashboardPageProps) {
   const freezeCount = decisionCounts['freeze'] ?? 0
 
   const totalDecisions = Object.values(decisionCounts).reduce((a, b) => a + b, 0)
-  conhttp://localhost:3000/docs-research/#/docs-researchst fraudRatePct = kpis ? kpis.fraud_rate * 100 : 0
+  const fraudRatePct = kpis ? kpis.fraud_rate * 100 : 0
 
   return (
     <div className="flex flex-col gap-6">
