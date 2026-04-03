@@ -129,16 +129,42 @@ export function FraudGraphCanvas({ nodes, edges, height = 540, frozen = false, r
           const t = data.simNodes.find((n) => n.id === link.target)
           if (!s || !t) continue
           const replayHit = !!activeReplay && activeReplay.tx_id === link.edge.tx_id
+          const dx = t.x - s.x
+          const dy = t.y - s.y
+          const len = Math.hypot(dx, dy) || 1
+          const ux = dx / len
+          const uy = dy / len
+          const targetNodeRadius = 7 + Math.min(9, ((t.risk_score ?? t.risk ?? 0) * 8))
+          const endX = t.x - ux * (targetNodeRadius + 2)
+          const endY = t.y - uy * (targetNodeRadius + 2)
+
           ctx.beginPath()
           ctx.moveTo(s.x, s.y)
-          ctx.lineTo(t.x, t.y)
+          ctx.lineTo(endX, endY)
           ctx.strokeStyle = replayHit ? '#a78bfa' : edgeColorByRisk(link.edge.risk_score ?? 0)
           ctx.lineWidth = replayHit ? 4 : 1.5
           ctx.globalAlpha = replayHit ? 0.95 : 0.78
           ctx.stroke()
+
+          const headSize = replayHit ? 8 : 6
+          const leftX = endX - ux * headSize - uy * (headSize * 0.55)
+          const leftY = endY - uy * headSize + ux * (headSize * 0.55)
+          const rightX = endX - ux * headSize + uy * (headSize * 0.55)
+          const rightY = endY - uy * headSize - ux * (headSize * 0.55)
+          ctx.beginPath()
+          ctx.moveTo(endX, endY)
+          ctx.lineTo(leftX, leftY)
+          ctx.lineTo(rightX, rightY)
+          ctx.closePath()
+          ctx.fillStyle = replayHit ? '#a78bfa' : edgeColorByRisk(link.edge.risk_score ?? 0)
+          ctx.fill()
+
           if (replayHit) {
             ctx.strokeStyle = 'rgba(167,139,250,0.35)'
             ctx.lineWidth = 8
+            ctx.beginPath()
+            ctx.moveTo(s.x, s.y)
+            ctx.lineTo(endX, endY)
             ctx.stroke()
           }
         }
