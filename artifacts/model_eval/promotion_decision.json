@@ -1,0 +1,4 @@
+{
+  "recommended_model": "xgb_champion",
+  "reason": "Keep xgb_champion: challengers did not clear promotion guardrails."
+}

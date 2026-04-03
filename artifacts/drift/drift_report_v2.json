@@ -1,0 +1,12 @@
+{
+  "psi": 1.0931877952041467,
+  "ks": 0.7059039237257059,
+  "fraud_prevalence_shift": 0.0004346747291129882,
+  "shap_importance_shift": 0.0,
+  "queue_precision_degradation": 0.0,
+  "threshold_decay_alert": false,
+  "alerts": [
+    "psi_shift",
+    "ks_shift"
+  ]
+}

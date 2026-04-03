@@ -1,0 +1,10 @@
+{
+  "dataset_rows": 80000,
+  "fraud_prevalence": 0.0198125,
+  "champion": "xgb",
+  "drift_alerts": [
+    "psi_shift",
+    "ks_shift"
+  ],
+  "promotion_recommendation": "xgb_champion"
+}

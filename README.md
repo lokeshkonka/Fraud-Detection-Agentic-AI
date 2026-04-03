@@ -26,8 +26,8 @@ Use the unified local training pipeline from the repository root:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r notebooks/requirements-local-train.txt
-python notebooks/train_pipeline.py
+python -m pip install -r models/requirements-local-train.txt
+python models/train_pipeline.py
 ```
 
 Optional: point to your dataset path.

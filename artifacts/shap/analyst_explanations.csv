@@ -1,0 +1,201 @@
+transaction_id,score,top_3_shap_features,plain_english_reason,fraud_archetype_guess,risk_score_band,suggested_action
+row_32,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_134,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_206,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_257,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_268,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_331,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_400,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_523,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_573,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_660,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_680,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_693,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_699,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_730,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_731,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_794,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_850,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_880,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_901,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_963,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_969,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1024,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1075,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1135,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_1177,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1363,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1453,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_1476,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_1531,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1682,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1696,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1701,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1773,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1801,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1804,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_1833,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1891,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1963,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_1971,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_1997,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2016,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2077,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2181,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2248,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_2330,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2382,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2415,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2454,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2518,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2621,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2683,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2707,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_2767,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2789,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2837,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2847,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2918,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_2995,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3053,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3139,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_3171,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3257,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3302,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3342,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3371,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3538,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_3561,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3695,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_3725,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_3728,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_3757,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3770,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3903,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_3969,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4016,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4031,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4113,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4135,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4252,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4301,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4392,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4435,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_4498,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4558,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_4563,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4600,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4633,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4664,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_4858,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4900,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_4905,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4942,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4947,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_4992,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,Account Takeover,critical,block
+row_5028,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_5073,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5081,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5130,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_5147,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5200,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5340,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5352,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5358,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5394,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5400,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5462,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_5515,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5526,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5550,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5579,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5694,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5881,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_5981,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_5986,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6023,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6075,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6088,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6268,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6324,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6376,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_6383,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6423,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6424,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6441,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6459,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_6645,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6680,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6691,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6697,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6760,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6814,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6834,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6850,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6862,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6874,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6885,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6904,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6913,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_6990,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7083,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_7201,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7216,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7217,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_7323,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7366,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7397,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7424,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7469,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_7479,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7521,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_7526,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7685,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7704,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_7710,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7770,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_7771,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_7948,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8029,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8193,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8205,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8284,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8352,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8383,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_8471,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8476,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8485,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8494,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_8527,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8545,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_8630,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8670,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8722,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8735,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8784,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8833,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8857,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8909,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_8937,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9128,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9145,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9168,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_9239,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9492,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9498,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,Mule Network,critical,block
+row_9549,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_9551,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9588,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9605,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_9637,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_9686,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9717,1.0,"['amount', 'newbalanceOrig', 'amount_vs_sender_avg']",amount is much higher than the sender's normal behavior,General Fraud Anomaly,critical,block
+row_9777,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9790,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9831,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9835,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9857,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9881,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9882,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9928,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
+row_9982,1.0,"['amount', 'newbalanceOrig', 'oldbalanceDest']",multiple behavioral risk signals increased fraud likelihood,General Fraud Anomaly,critical,block
